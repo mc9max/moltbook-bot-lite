@@ -79,11 +79,15 @@ async function runCycle(submolt, forcedTopic = null) {
         instructions: verification.instructions || "",
       });
       const code = verification.verification_code || verification?.post?.verification_code;
-      const vres = await client.submitVerification(code, answer);
-      verified = !!vres?.success;
-      if (!verified) {
-        entryDebug = `challenge="${String(verification.challenge_text || "").slice(0, 80)}" answer="${answer}"`;
+      let vres = null;
+      try {
+        vres = await client.submitVerification(code, answer);
+        verified = !!vres?.success;
+      } catch (e) {
+        verified = false;
+        vres = { error: String(e?.message || e) };
       }
+      entryDebug = `challenge="${String(verification.challenge_text || "").slice(0, 80)}" | answer="${answer}" | ${verified ? "ok" : String(vres?.error || "failed").slice(0, 60)}`;
     }
 
     const entry = {
