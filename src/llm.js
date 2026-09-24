@@ -43,7 +43,8 @@ function buildRequest(flavor, { model, system, user, maxTokens }) {
           { role: "system", content: system },
           { role: "user", content: user },
         ],
-        options: { num_predict: maxTokens, think: false },
+        think: false,
+        options: { num_predict: maxTokens },
       },
       extract: (j) => j?.message?.content || j?.message?.thinking || "",
     };
