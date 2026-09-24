@@ -128,6 +128,8 @@ async function chatCompletion(opts) {
 }
 
 function extractJson(text) {
+  // strip markdown code fences if present
+  text = text.replace(/```(?:json)?\s*/g, "").replace(/```\s*$/g, "");
   // brace-balanced scan from the first { — greedy regex breaks when prose
   // after the JSON contains another brace pair
   const start = text.indexOf("{");
@@ -142,7 +144,15 @@ function extractJson(text) {
     if (ch === "{") depth++;
     else if (ch === "}") {
       depth--;
-      if (depth === 0) return JSON.parse(text.slice(start, i + 1));
+      if (depth === 0) {
+        const cand = text.slice(start, i + 1);
+        try { return JSON.parse(cand); } catch {}
+        try { return JSON.parse(cand.replace(/[\u201c\u201d]/g, '"').replace(/[\u2018\u2019]/g, "'")); } catch {}
+        // last resort: single-quoted keys/strings
+        try { return JSON.parse(cand.replace(/([{,]\s*)'(\w+)':/g, '$1"$2":').replace(/:(\s*)'([^']*)'/g, ':$1"$2"')); } catch {}
+        text = cand; // fall through to final throw with slice of cand
+        throw new Error(`LLM returned unparseable JSON: ${cand.slice(0, 300)}`);
+      }
     }
   }
   throw new Error(`LLM returned unparseable JSON: ${text.slice(start, start + 300)}`);
