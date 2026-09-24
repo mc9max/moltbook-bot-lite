@@ -42,6 +42,7 @@ app.post("/api/post-now", async (c) => {
 // ---------- bot loop ----------
 async function runCycle(submolt, forcedTopic = null) {
   const s = store.get();
+  let entryDebug = null;
   try {
     if (!configured) throw new Error("MOLTBOOK_API_KEY not set (must start with moltbook_)");
 
@@ -80,6 +81,9 @@ async function runCycle(submolt, forcedTopic = null) {
       const code = verification.verification_code || verification?.post?.verification_code;
       const vres = await client.submitVerification(code, answer);
       verified = !!vres?.success;
+      if (!verified) {
+        entryDebug = `challenge="${String(verification.challenge_text || "").slice(0, 80)}" answer="${answer}"`;
+      }
     }
 
     const entry = {
@@ -88,6 +92,7 @@ async function runCycle(submolt, forcedTopic = null) {
       submolt,
       post_id: res?.post?.id || null,
       verification_status: verification ? (verified ? "verified" : "failed") : "none",
+      ...(entryDebug ? { debug: entryDebug } : {}),
     };
     store.addPost(entry, 20);
     console.log(`[post] ${title} -> m/${submolt} (verified=${verified})`);
