@@ -25,7 +25,8 @@ export class MoltbookClient {
     }
     if (!res.ok) {
       const msg = body?.error || body?.message || `${res.status} ${res.statusText}`;
-      throw new Error(`Moltbook ${path}: ${msg}`);
+      const retry = body?.retry_after_seconds ? ` (retry in ${body.retry_after_seconds}s)` : "";
+      throw new Error(`Moltbook ${path}: ${msg}${retry}`);
     }
     return body;
   }
