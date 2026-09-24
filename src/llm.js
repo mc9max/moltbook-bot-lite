@@ -1,41 +1,125 @@
 // LLM calls: post generation + anti-spam challenge solving.
-// Works with any OpenAI-compatible /v1/chat/completions endpoint or Anthropic /v1/messages.
+// Works with Anthropic, any OpenAI-compatible endpoint, and Ollama native.
+//
+// LLM_BASE_URL is normalized client-side so users can paste whatever shape the
+// provider's docs show:
+//   https://host                      -> {base}/v1/chat/completions
+//   https://host/v1                   -> {base}/v1/chat/completions
+//   https://host/v1/chat/completions  -> used as-is
+//   https://host/api/chat             -> Ollama native, used as-is
+// If the first guess 404s, remaining candidates are probed once and the working
+// path is cached for the process lifetime (handles LiteLLM/OpenRouter/proxies).
 
-async function chatCompletion({ baseUrl, apiKey, model, system, user, maxTokens = 1200 }) {
-  if (!apiKey) throw new Error("LLM_API_KEY not set — cannot generate content");
+const ANTHROPIC_RE = /anthropic\.com/;
 
-  // Anthropic-style
-  if (/anthropic\.com/.test(baseUrl)) {
-    const res = await fetch(`${baseUrl}/v1/messages`, {
-      method: "POST",
-      headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ model, max_tokens: maxTokens, system, messages: [{ role: "user", content: user }] }),
-    });
-    if (!res.ok) throw new Error(`LLM ${res.status}: ${await res.text().catch(() => res.statusText)}`);
-    const j = await res.json();
-    return j?.content?.[0]?.text || "";
+function candidatePaths(base) {
+  const u = base.replace(/\/+$/, "");
+  const c = [];
+  if (/\/chat\/completions$/.test(u)) c.push({ url: u, flavor: "openai" });
+  else if (/\/v1$/.test(u)) {
+    c.push({ url: `${u}/chat/completions`, flavor: "openai" });
+    c.push({ url: `${u.replace(/\/v1$/, "")}/api/chat`, flavor: "ollama" });
+  } else if (/\/api\/chat$/.test(u)) {
+    c.push({ url: u, flavor: "ollama" });
+    c.push({ url: `${u.replace(/\/api\/chat$/, "")}/v1/chat/completions`, flavor: "openai" });
+  } else {
+    c.push({ url: `${u}/v1/chat/completions`, flavor: "openai" });
+    c.push({ url: `${u}/api/chat`, flavor: "ollama" });
+    c.push({ url: `${u}/chat/completions`, flavor: "openai" });
   }
+  return c;
+}
 
-  // OpenAI-compatible
-  const res = await fetch(`${baseUrl}/v1/chat/completions`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
+// resolved endpoint cache, keyed by baseUrl
+const endpointCache = new Map();
+
+function buildRequest(flavor, { model, system, user, maxTokens }) {
+  if (flavor === "ollama") {
+    return {
+      body: {
+        model,
+        stream: false,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        options: { num_predict: maxTokens },
+      },
+      extract: (j) => j?.message?.content || "",
+    };
+  }
+  return {
+    body: {
       model,
       max_tokens: maxTokens,
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-    }),
-  });
-  if (!res.ok) throw new Error(`LLM ${res.status}: ${await res.text().catch(() => res.statusText)}`);
-  const j = await res.json();
-  return j?.choices?.[0]?.message?.content || "";
+    },
+    extract: (j) => j?.choices?.[0]?.message?.content || "",
+  };
+}
+
+async function openaiOrOllama({ baseUrl, apiKey, model, system, user, maxTokens }) {
+  const cached = endpointCache.get(baseUrl);
+  const candidates = cached ? [cached] : candidatePaths(baseUrl);
+  let lastErr = null;
+
+  for (const cand of candidates) {
+    const { body, extract } = buildRequest(cand.flavor, { model, system, user, maxTokens });
+    const res = await fetch(cand.url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      const j = await res.json().catch(() => null);
+      if (j) {
+        const text = extract(j);
+        if (text) {
+          if (!cached) endpointCache.set(baseUrl, cand);
+          return text;
+        }
+        lastErr = new Error(`LLM ${res.status} at ${cand.url}: empty content in response`);
+        continue;
+      }
+      lastErr = new Error(`LLM at ${cand.url}: non-JSON response`);
+      continue;
+    }
+    const errText = await res.text().catch(() => res.statusText);
+    lastErr = new Error(`LLM ${res.status} at ${cand.url}: ${errText.slice(0, 300)}`);
+    // 404/405 = wrong path -> probe next candidate. Auth/other errors are terminal.
+    if (res.status !== 404 && res.status !== 405) break;
+  }
+  throw lastErr || new Error("LLM request failed: no endpoint candidate succeeded");
+}
+
+async function chatCompletion(opts) {
+  if (!opts.apiKey) throw new Error("LLM_API_KEY not set — cannot generate content");
+
+  // Anthropic-style
+  if (ANTHROPIC_RE.test(opts.baseUrl)) {
+    const res = await fetch(`${opts.baseUrl.replace(/\/+$/, "")}/v1/messages`, {
+      method: "POST",
+      headers: {
+        "x-api-key": opts.apiKey,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: opts.model,
+        max_tokens: opts.maxTokens,
+        system: opts.system,
+        messages: [{ role: "user", content: opts.user }],
+      }),
+    });
+    if (!res.ok) throw new Error(`LLM ${res.status}: ${await res.text().catch(() => res.statusText)}`);
+    const j = await res.json();
+    return j?.content?.[0]?.text || "";
+  }
+
+  return openaiOrOllama(opts);
 }
 
 function extractJson(text) {
