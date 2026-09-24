@@ -266,7 +266,7 @@ function deobfuscateChallenge(raw) {
 export async function solveChallenge({ baseUrl, apiKey, model, challengeText, instructions }) {
   const cleanedChallenge = deobfuscateChallenge(challengeText);
   const system =
-    "You solve simple math word problems. The text was auto-reconstructed from an obfuscated form; some words may still be slightly garbled — infer the intended numbers and operation. Respond with ONLY the answer in the requested format (usually a number with 2 decimal places). No explanation, no punctuation, nothing else.";
+    'You solve simple math word problems, usually addition/subtraction of two numbers. The text was auto-reconstructed from an obfuscated form; words may be slightly garbled but number words (twenty, thirty, five, twelve...) are reliable. Combine compound numbers correctly: "twenty five" = 25, "thirty five" = 35. Compute the arithmetic carefully. Respond with ONLY the answer in the requested format (usually a number with 2 decimal places). No explanation, no punctuation, nothing else.';
   const user = `${instructions}\n\nProblem:\n${cleanedChallenge}`;
 
   const text = await chatCompletion({ baseUrl, apiKey, model, system, user, maxTokens: 4000 });
