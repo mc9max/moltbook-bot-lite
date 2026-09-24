@@ -33,7 +33,7 @@ function candidatePaths(base) {
 // resolved endpoint cache, keyed by baseUrl
 const endpointCache = new Map();
 
-function buildRequest(flavor, { model, system, user, maxTokens }) {
+function buildRequest(flavor, { model, system, userMsg, maxTokens }) {
   if (flavor === "ollama") {
     return {
       body: {
@@ -41,7 +41,7 @@ function buildRequest(flavor, { model, system, user, maxTokens }) {
         stream: false,
         messages: [
           { role: "system", content: system },
-          { role: "user", content: user },
+          { role: "user", content: userMsg },
         ],
         think: false,
         options: { num_predict: Math.max(maxTokens * 3, 4000) },
@@ -55,20 +55,21 @@ function buildRequest(flavor, { model, system, user, maxTokens }) {
       max_tokens: maxTokens,
       messages: [
         { role: "system", content: system },
-        { role: "user", content: user },
+        { role: "user", content: userMsg },
       ],
     },
     extract: (j) => j?.choices?.[0]?.message?.content || j?.choices?.[0]?.message?.reasoning_content || "",
   };
 }
 
-async function openaiOrOllama({ baseUrl, apiKey, model, system, user, maxTokens }) {
+async function openaiOrOllama({ baseUrl, apiKey, model, system, user, maxTokens, extraUser }) {
+  const userMsg = extraUser ? `${user}${extraUser}` : user;
   const cached = endpointCache.get(baseUrl);
   const candidates = cached ? [cached] : candidatePaths(baseUrl);
   let lastErr = null;
 
   for (const cand of candidates) {
-    const { body, extract } = buildRequest(cand.flavor, { model, system, user, maxTokens });
+    const { body, extract } = buildRequest(cand.flavor, { model, system, userMsg, maxTokens });
     const res = await fetch(cand.url, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -89,8 +90,6 @@ async function openaiOrOllama({ baseUrl, apiKey, model, system, user, maxTokens 
       }
       lastErr = new Error(`LLM at ${cand.url}: non-JSON response — body: ${rawText.slice(0, 300)}`);
       continue;
-      lastErr = new Error(`LLM at ${cand.url}: non-JSON response`);
-      continue;
     }
     const errText = await res.text().catch(() => res.statusText);
     lastErr = new Error(`LLM ${res.status} at ${cand.url}: ${errText.slice(0, 300)}`);
@@ -104,6 +103,7 @@ async function chatCompletion(opts) {
   if (!opts.apiKey) throw new Error("LLM_API_KEY not set — cannot generate content");
 
   // Anthropic-style
+  const userMsg = opts.extraUser ? `${opts.user}${opts.extraUser}` : opts.user;
   if (ANTHROPIC_RE.test(opts.baseUrl)) {
     const res = await fetch(`${opts.baseUrl.replace(/\/+$/, "")}/v1/messages`, {
       method: "POST",
@@ -116,7 +116,7 @@ async function chatCompletion(opts) {
         model: opts.model,
         max_tokens: opts.maxTokens,
         system: opts.system,
-        messages: [{ role: "user", content: opts.user }],
+        messages: [{ role: "user", content: userMsg }],
       }),
     });
     if (!res.ok) throw new Error(`LLM ${res.status}: ${await res.text().catch(() => res.statusText)}`);
@@ -182,10 +182,44 @@ Respond with ONLY JSON: {"title": "...", "content": "..."}`;
 
 Your templates:\n${tplList}${recent}`;
 
-  const text = await chatCompletion({ baseUrl, apiKey, model, system, user, maxTokens: 1500 });
-  const { title, content } = extractJson(text);
-  if (!title || !content) throw new Error("LLM JSON missing title/content");
-  return { title: String(title).slice(0, 300), content: String(content).slice(0, 40000) };
+  // up to 3 attempts: glm-class models drift (placeholder titles, Chinese,
+  // missing JSON). Validate hard before returning anything.
+  const isEnglishish = (s) => {
+    if (!s) return false;
+    const letters = (s.match(/[A-Za-z]/g) || []).length;
+    const nonAscii = (s.match(/[^\x00-\x7F]/g) || []).length;
+    return letters >= 20 && nonAscii <= Math.max(2, letters * 0.05);
+  };
+  const goodTitle = (t) => {
+    const s = String(t || "").trim();
+    return s.length >= 15 && s.length <= 120 && !/^\W+$/.test(s) && /\s/.test(s) && isEnglishish(s);
+  };
+  const goodContent = (c) => {
+    const s = String(c || "").trim();
+    return s.length >= 400 && isEnglishish(s) && !/^\.{2,}/.test(s);
+  };
+
+  let lastRaw = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const text = await chatCompletion({
+      baseUrl, apiKey, model, system, user,
+      maxTokens: 1500,
+      extraUser: attempt > 1 ? "\n\nREMINDER: Respond in ENGLISH with ONLY the JSON object. Title must be a real descriptive sentence (never \"...\" or placeholders)." : undefined,
+    });
+    lastRaw = text;
+    let parsed;
+    try {
+      parsed = extractJson(text);
+    } catch {
+      continue;
+    }
+    const title = String(parsed?.title || "").trim();
+    const content = String(parsed?.content || "").trim();
+    if (!goodTitle(title)) continue;
+    if (!goodContent(content)) continue;
+    return { title: title.slice(0, 300), content: content.slice(0, 40000) };
+  }
+  throw new Error(`LLM produced no usable post after 3 attempts — last output: ${String(lastRaw || "").slice(0, 200)}`);
 }
 
 export async function solveChallenge({ baseUrl, apiKey, model, challengeText, instructions }) {
