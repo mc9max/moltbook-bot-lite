@@ -57,7 +57,7 @@ function buildRequest(flavor, { model, system, user, maxTokens }) {
         { role: "user", content: user },
       ],
     },
-    extract: (j) => j?.choices?.[0]?.message?.content || "",
+    extract: (j) => j?.choices?.[0]?.message?.content || j?.choices?.[0]?.message?.reasoning_content || "",
   };
 }
 
