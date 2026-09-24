@@ -120,7 +120,11 @@ function renderDashboard(s) {
   const posts = JSON.stringify(s.recent_posts || []).replace(/</g, "\\u003c");
   return `<!doctype html><html><head><meta charset="utf-8"><title>Moltbook Bot Lite</title>
 <style>body{font-family:system-ui;max-width:960px;margin:2rem auto;padding:0 1rem;background:#0f1117;color:#e6e6e6}
-table{width:100%;border-collapse:collapse;font-size:.9rem}td,th{padding:.4rem .6rem;border-bottom:1px solid #2a2d3a;text-align:left}
+table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:.9rem}td,th{padding:.4rem .6rem;border-bottom:1px solid #2a2d3a;text-align:left;overflow-wrap:anywhere}
+table th:nth-child(1),table td:nth-child(1){width:17%}
+table th:nth-child(2),table td:nth-child(2){width:11%}
+table th:nth-child(3),table td:nth-child(3){width:57%}
+table th:nth-child(4),table td:nth-child(4){width:15%}
 th{cursor:pointer;user-select:none;white-space:nowrap}th:hover{color:#ff6a3d}th .arrow{font-size:.7rem;opacity:.7}
 .k{color:#ff6a3d;font-weight:700}code{background:#1a1d29;padding:.1rem .35rem;border-radius:4px}
 .toolbar{display:flex;gap:.6rem;align-items:center;margin:.6rem 0;flex-wrap:wrap}
