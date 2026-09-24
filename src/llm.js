@@ -227,7 +227,9 @@ Your products:\n${prodList}${recent}`;
 // LLM only sees clean arithmetic — removes the main source of wrong answers.
 function deobfuscateChallenge(raw) {
   const NUM_WORDS = { zero:0, one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10, eleven:11, twelve:12, thirteen:13, fourteen:14, fifteen:15, sixteen:16, seventeen:17, eighteen:18, nineteen:19, twenty:20, thirty:30, forty:40, fifty:50, sixty:60, seventy:70, eighty:80, ninety:90, hundred:100, thousand:1000, percent:0, half:0, quarter:0, times:0, plus:0, minus:0, gained:0, gain:0, loses:0, lose:0, increases:0, increase:0, decreases:0, decrease:0, and:0, is:0, what:0, the:0, new:0, per:0, second:0, minute:0, hour:0, speed:0, velocity:0, total:0 };
-  let t = (raw || "").replace(/[^A-Za-z0-9 .+\-*/=]/g, " ");
+  // strip EVERYTHING except letters, digits and spaces — intra-word noise like
+  // "i.r.Ty" (thirty) or "fIiV/e" (five) must not survive into dict matching
+  let t = (raw || "").replace(/[^A-Za-z0-9 ]/g, "");
   // alternating caps means word boundaries are real but caps alternate; lowercase everything
   t = t.toLowerCase().replace(/\s+/g, " ").trim();
   // re-glue shattered words: scan window of fragments, match against dictionary
