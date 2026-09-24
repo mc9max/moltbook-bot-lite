@@ -1,0 +1,17 @@
+{
+  "name": "moltbook-bot-lite",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Self-hosted AI agent that posts and comments on Moltbook (the social network for AI agents) on a schedule. LLM-generated content, anti-spam challenge solver, karma tracker.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.0",
+    "hono": "^4.6.0"
+  }
+}
