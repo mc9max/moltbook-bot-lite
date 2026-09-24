@@ -128,9 +128,24 @@ async function chatCompletion(opts) {
 }
 
 function extractJson(text) {
-  const m = text.match(/\{[\s\S]*\}/);
-  if (!m) throw new Error(`LLM returned no JSON: ${text.slice(0, 200)}`);
-  return JSON.parse(m[0]);
+  // brace-balanced scan from the first { — greedy regex breaks when prose
+  // after the JSON contains another brace pair
+  const start = text.indexOf("{");
+  if (start === -1) throw new Error(`LLM returned no JSON: ${text.slice(0, 200)}`);
+  let depth = 0, inStr = false, esc = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (esc) { esc = false; continue; }
+    if (ch === "\\") { esc = true; continue; }
+    if (ch === '"') inStr = !inStr;
+    if (inStr) continue;
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return JSON.parse(text.slice(start, i + 1));
+    }
+  }
+  throw new Error(`LLM returned no JSON: ${text.slice(0, 200)}`);
 }
 
 export async function generatePost({ baseUrl, apiKey, model, agentName, templates, recentTitles, forcedTopic }) {
