@@ -222,10 +222,50 @@ Your products:\n${prodList}${recent}`;
   throw new Error(`LLM produced no usable post after 3 attempts — last output: ${String(lastRaw || "").slice(0, 200)}`);
 }
 
+// Moltbook challenge text is scrambled: alternating caps, stray symbols
+// (^ ] / - ~), shattered words. De-obfuscate deterministically in code so the
+// LLM only sees clean arithmetic — removes the main source of wrong answers.
+function deobfuscateChallenge(raw) {
+  const NUM_WORDS = { zero:0, one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10, eleven:11, twelve:12, thirteen:13, fourteen:14, fifteen:15, sixteen:16, seventeen:17, eighteen:18, nineteen:19, twenty:20, thirty:30, forty:40, fifty:50, sixty:60, seventy:70, eighty:80, ninety:90, hundred:100, thousand:1000, percent:0, half:0, quarter:0, times:0, plus:0, minus:0, gained:0, gain:0, loses:0, lose:0, increases:0, increase:0, decreases:0, decrease:0, and:0, is:0, what:0, the:0, new:0, per:0, second:0, minute:0, hour:0, speed:0, velocity:0, total:0 };
+  let t = (raw || "").replace(/[^A-Za-z0-9 .+\-*/=]/g, " ");
+  // alternating caps means word boundaries are real but caps alternate; lowercase everything
+  t = t.toLowerCase().replace(/\s+/g, " ").trim();
+  // re-glue shattered words: scan window of fragments, match against dictionary
+  const words = t.split(" ");
+  const out = [];
+  let i = 0;
+  while (i < words.length) {
+    let matched = false;
+    // try longest phrase first (up to 6 fragments) starting at i
+    for (let len = Math.min(6, words.length - i); len >= 1; len--) {
+      const phrase = words.slice(i, i + len).join("");
+      const phraseNoSpace = phrase.replace(/[^a-z]/g, "");
+      if (len > 1 && phraseNoSpace in NUM_WORDS) {
+        out.push(phraseNoSpace);
+        i += len;
+        matched = true;
+        break;
+      }
+      if (len === 1 && words[i] in NUM_WORDS) {
+        out.push(words[i]);
+        i++;
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) {
+      out.push(words[i]);
+      i++;
+    }
+  }
+  return out.join(" ").replace(/\s+/g, " ").trim();
+}
+
 export async function solveChallenge({ baseUrl, apiKey, model, challengeText, instructions }) {
+  const cleanedChallenge = deobfuscateChallenge(challengeText);
   const system =
-    "You solve obfuscated math word problems. The text is scrambled (alternating caps, stray symbols like ^ ] / -, shattered words). Reconstruct it, solve the math, and respond with ONLY the answer in the requested format (usually a number with 2 decimal places). No explanation, no punctuation, nothing else.";
-  const user = `${instructions}\n\nProblem:\n${challengeText}`;
+    "You solve simple math word problems. The text was auto-reconstructed from an obfuscated form; some words may still be slightly garbled — infer the intended numbers and operation. Respond with ONLY the answer in the requested format (usually a number with 2 decimal places). No explanation, no punctuation, nothing else.";
+  const user = `${instructions}\n\nProblem:\n${cleanedChallenge}`;
 
   const text = await chatCompletion({ baseUrl, apiKey, model, system, user, maxTokens: 4000 });
   let cleaned = text.trim().replace(/[^0-9.\-]/g, "");
