@@ -6,9 +6,8 @@ RUN npm ci --omit=dev 2>/dev/null || npm install --omit=dev
 
 COPY src ./src
 
-# /data = volume mount for state (recent posts, template registry). NO secrets here.
-RUN mkdir -p /data
-VOLUME /data
+# NOTE: no Docker VOLUME directive — Railway's Metal builder rejects it.
+# The /data volume is attached via the Railway template definition instead.
 
 ENV NODE_ENV=production
 EXPOSE 3000
