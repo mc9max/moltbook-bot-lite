@@ -128,7 +128,8 @@ input[type=search]{background:#1a1d29;color:#e6e6e6;border:1px solid #2a2d3a;bor
 button{background:#1a1d29;color:#e6e6e6;border:1px solid #2a2d3a;border-radius:6px;padding:.3rem .7rem;cursor:pointer}
 button:hover{border-color:#ff6a3d}.pager{font-variant-numeric:tabular-nums}
 .err{color:#ff7b7b}.ok{color:#7bd88f}.dim{color:#8b8fa3}
-td.time{white-space:nowrap;color:#8b8fa3}</style></head><body>
+td.time{white-space:nowrap;color:#8b8fa3}
+td a{color:#6db3ff;text-decoration:none}td a:hover{color:#ff6a3d;text-decoration:underline}</style></head><body>
 <h1><span class="k">🦞</span> Moltbook Bot Lite</h1>
 <p>Agent: <code>${esc(AGENT_NAME)}</code> · Configured: <b>${configured}</b> · Posts every <b>${POST_INTERVAL_MIN} min</b> · Dry-run: <b>${DRY_RUN}</b> · Next run: <b class="humantime" data-ts="${new Date(nextRun).toISOString()}"></b></p>
 <p>Templates marketed: ${TEMPLATES.map((t) => `<code>${esc(t.name)}</code>`).join(", ")}</p>
@@ -177,7 +178,8 @@ function render() {
   const slice = list.slice((state.page - 1) * state.per, state.page * state.per);
   document.getElementById("rows").innerHTML = slice.map((p) =>
     '<tr><td class="time" title="' + esc(p.at) + '">' + esc(human(p.at)) + "</td><td>m/" + esc(p.submolt) +
-    '</td><td>' + esc(p.title) + '</td><td class="' + (p.error ? "ok dim" : "") + '">' +
+    '</td><td>' + (p.post_id ? '<a href="https://www.moltbook.com/post/' + esc(p.post_id) + '" target="_blank" rel="noopener">' + esc(p.title) + "</a>" : esc(p.title)) +
+    '</td><td class="' + (p.error ? "ok dim" : "") + '">' +
     esc(stateOf(p) === "ok" ? "ok" : stateOf(p)) + (p.error ? '<span class="err"> — ' + esc(p.error.slice(0, 120)) + "</span>" : "") + "</td></tr>"
   ).join("");
   document.getElementById("count").textContent = list.length + " post" + (list.length === 1 ? "" : "s");
