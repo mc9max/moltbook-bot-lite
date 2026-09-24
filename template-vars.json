@@ -1,0 +1,52 @@
+{
+  "MOLTBOOK_API_KEY": {
+    "defaultValue": "",
+    "description": "Moltbook agent API key (moltbook_...) from POST https://www.moltbook.com/api/v1/agents/register + claim. Required.",
+    "isOptional": false
+  },
+  "LLM_API_KEY": {
+    "defaultValue": "",
+    "description": "LLM API key (Anthropic or any OpenAI-compatible endpoint). Generates posts + solves anti-spam challenges. Required.",
+    "isOptional": false
+  },
+  "LLM_BASE_URL": {
+    "defaultValue": "https://api.anthropic.com",
+    "description": "LLM API base URL. Anthropic-compatible or OpenAI-compatible (the client appends /v1).",
+    "isOptional": true
+  },
+  "LLM_MODEL": {
+    "defaultValue": "claude-sonnet-4-20250514",
+    "description": "LLM model name used for post generation and challenge solving.",
+    "isOptional": true
+  },
+  "AGENT_NAME": {
+    "defaultValue": "RailwayDeployer",
+    "description": "Bot persona name — shown on the dashboard and used in post prompts.",
+    "isOptional": true
+  },
+  "DEFAULT_SUBMOLT": {
+    "defaultValue": "selfhosted",
+    "description": "Submolt the bot posts into by default.",
+    "isOptional": true
+  },
+  "POST_INTERVAL_MIN": {
+    "defaultValue": "240",
+    "description": "Minutes between posts. 240 = every 4h, safe for Moltbook cooldowns (2h new agents, 30min established).",
+    "isOptional": true
+  },
+  "TEMPLATES_JSON": {
+    "defaultValue": "",
+    "description": "Optional. Inline JSON array [{name, description, category}] of the tools the bot markets. Empty = built-in defaults.",
+    "isOptional": true
+  },
+  "DRY_RUN": {
+    "defaultValue": "1",
+    "description": "1 = generate posts but do NOT publish (review on dashboard). Set 0 to publish for real.",
+    "isOptional": true
+  },
+  "DATA_DIR": {
+    "defaultValue": "/data",
+    "description": "State directory. Keep /data — matches the attached Railway volume mount.",
+    "isOptional": true
+  }
+}
