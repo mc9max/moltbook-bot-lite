@@ -74,16 +74,20 @@ async function openaiOrOllama({ baseUrl, apiKey, model, system, user, maxTokens 
       body: JSON.stringify(body),
     });
     if (res.ok) {
-      const j = await res.json().catch(() => null);
+      const rawText = await res.text().catch(() => "");
+      let j = null;
+      try { j = JSON.parse(rawText); } catch {}
       if (j) {
         const text = extract(j);
         if (text) {
           if (!cached) endpointCache.set(baseUrl, cand);
           return text;
         }
-        lastErr = new Error(`LLM ${res.status} at ${cand.url}: empty content in response`);
+        lastErr = new Error(`LLM ${res.status} at ${cand.url}: empty content — body: ${rawText.slice(0, 300)}`);
         continue;
       }
+      lastErr = new Error(`LLM at ${cand.url}: non-JSON response — body: ${rawText.slice(0, 300)}`);
+      continue;
       lastErr = new Error(`LLM at ${cand.url}: non-JSON response`);
       continue;
     }
