@@ -182,6 +182,6 @@ export async function solveChallenge({ baseUrl, apiKey, model, challengeText, in
     "You solve obfuscated math word problems. The text is scrambled (alternating caps, stray symbols like ^ ] / -, shattered words). Reconstruct it, solve the math, and respond with ONLY the answer in the requested format (usually a number with 2 decimal places). No explanation, no punctuation, nothing else.";
   const user = `${instructions}\n\nProblem:\n${challengeText}`;
 
-  const text = await chatCompletion({ baseUrl, apiKey, model, system, user, maxTokens: 60 });
+  const text = await chatCompletion({ baseUrl, apiKey, model, system, user, maxTokens: 4000 });
   return text.trim().replace(/[^0-9.\-]/g, "") || text.trim();
 }
