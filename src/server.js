@@ -87,7 +87,7 @@ async function runCycle(submolt, forcedTopic = null) {
         verified = false;
         vres = { error: String(e?.message || e) };
       }
-      entryDebug = `challenge="${String(verification.challenge_text || "").slice(0, 80)}" | answer="${answer}" | ${verified ? "ok" : String(vres?.error || "failed").slice(0, 60)}`;
+      entryDebug = `challenge="${String(verification.challenge_text || "").slice(0, 200)}" | answer="${answer}" | ${verified ? "ok" : String(vres?.error || "failed").slice(0, 60)}`;
     }
 
     const entry = {
