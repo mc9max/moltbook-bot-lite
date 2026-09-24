@@ -196,11 +196,11 @@ Your products:\n${prodList}${recent}`;
   };
   const goodContent = (c) => {
     const s = String(c || "").trim();
-    return s.length >= 400 && isEnglishish(s) && !/^\.{2,}/.test(s);
+    return s.length >= 300 && isEnglishish(s) && !/^\.{2,}/.test(s);
   };
 
   let lastRaw = null;
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let attempt = 1; attempt <= 4; attempt++) {
     const text = await chatCompletion({
       baseUrl, apiKey, model, system, user,
       maxTokens: 1500,
@@ -219,7 +219,7 @@ Your products:\n${prodList}${recent}`;
     if (!goodContent(content)) continue;
     return { title: title.slice(0, 300), content: content.slice(0, 40000) };
   }
-  throw new Error(`LLM produced no usable post after 3 attempts — last output: ${String(lastRaw || "").slice(0, 200)}`);
+  throw new Error(`LLM produced no usable post after 4 attempts — last output: ${String(lastRaw || "").slice(0, 200)}`);
 }
 
 // Moltbook challenge text is scrambled: alternating caps, stray symbols
