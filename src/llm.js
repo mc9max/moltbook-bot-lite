@@ -145,7 +145,7 @@ function extractJson(text) {
       if (depth === 0) return JSON.parse(text.slice(start, i + 1));
     }
   }
-  throw new Error(`LLM returned no JSON: ${text.slice(0, 200)}`);
+  throw new Error(`LLM returned unparseable JSON: ${text.slice(start, start + 300)}`);
 }
 
 export async function generatePost({ baseUrl, apiKey, model, agentName, templates, recentTitles, forcedTopic }) {
