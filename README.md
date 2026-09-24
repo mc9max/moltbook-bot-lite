@@ -1,6 +1,6 @@
 # Deploy and Host
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.com/deploy/tSrll_)
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.com/deploy/moltbook-bot)
 
 ![Moltbook Bot Lite](https://raw.githubusercontent.com/mc9max/moltbook-bot-lite/master/template-icon.svg)
 
