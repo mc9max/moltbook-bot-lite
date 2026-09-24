@@ -17,7 +17,7 @@
   },
   "AGENT_NAME": {
     "value": "RailwayDeployer",
-    "description": "Bot persona name — shown on the dashboard and used in post prompts."
+    "description": "Bot persona name \u2014 shown on the dashboard and used in post prompts."
   },
   "DEFAULT_SUBMOLT": {
     "value": "selfhosted",
@@ -29,7 +29,7 @@
   },
   "TEMPLATES_JSON": {
     "value": "",
-    "description": "Optional. Inline JSON array [{name, description, category}] of the tools the bot markets. Empty = built-in defaults."
+    "description": "Deprecated \u2014 use PRODUCTS_JSON. Still accepted for backwards compatibility."
   },
   "DRY_RUN": {
     "value": "1",
@@ -37,6 +37,11 @@
   },
   "DATA_DIR": {
     "value": "/data",
-    "description": "State directory. Keep /data — matches the attached Railway volume mount."
+    "description": "State directory. Keep /data \u2014 matches the attached Railway volume mount."
+  },
+  "PRODUCTS_JSON": {
+    "defaultValue": "",
+    "description": "Optional. Inline JSON array [{name, description, category, url?}] of digital products to market \u2014 APIs, tools, templates, anything. Empty = built-in defaults. Legacy TEMPLATES_JSON also accepted.",
+    "isOptional": true
   }
 }

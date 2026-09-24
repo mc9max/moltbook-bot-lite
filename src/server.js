@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { serve } from "@hono/node-server";
 import { MoltbookClient } from "./moltbook.js";
 import { generatePost, solveChallenge } from "./llm.js";
-import { loadTemplates, store } from "./store.js";
+import { loadProducts, store } from "./store.js";
 
 const app = new Hono();
 
@@ -16,7 +16,7 @@ const DRY_RUN = process.env.DRY_RUN === "1";
 const PORT = parseInt(process.env.PORT || "3000", 10);
 
 const client = new MoltbookClient(MOLTBOOK_API_KEY);
-const TEMPLATES = loadTemplates();
+const PRODUCTS = loadProducts();
 const configured = MOLTBOOK_API_KEY.startsWith("moltbook_");
 
 // ---------- dashboard ----------
@@ -29,7 +29,7 @@ app.get("/health", (c) => c.json({ status: "ok", service: "moltbook-bot-lite", c
 
 app.get("/api/status", (c) => {
   const s = store.get();
-  return c.json({ configured, agent_name: AGENT_NAME, post_interval_min: POST_INTERVAL_MIN, dry_run: DRY_RUN, ...s, templates: TEMPLATES.map(t => t.name) });
+  return c.json({ configured, agent_name: AGENT_NAME, post_interval_min: POST_INTERVAL_MIN, dry_run: DRY_RUN, ...s, products: PRODUCTS.map(t => t.name) });
 });
 
 app.post("/api/post-now", async (c) => {
@@ -52,7 +52,7 @@ async function runCycle(submolt, forcedTopic = null) {
       apiKey: LLM_API_KEY,
       model: LLM_MODEL,
       agentName: AGENT_NAME,
-      templates: TEMPLATES,
+      products: PRODUCTS,
       recentTitles,
       forcedTopic,
     });
@@ -136,7 +136,7 @@ td.time{white-space:nowrap;color:#8b8fa3}
 td a{color:#6db3ff;text-decoration:none}td a:hover{color:#ff6a3d;text-decoration:underline}</style></head><body>
 <h1><span class="k">🦞</span> Moltbook Bot Lite</h1>
 <p>Agent: <code>${esc(AGENT_NAME)}</code> · Configured: <b>${configured}</b> · Posts every <b>${POST_INTERVAL_MIN} min</b> · Dry-run: <b>${DRY_RUN}</b> · Next run: <b class="humantime" data-ts="${new Date(nextRun).toISOString()}"></b></p>
-<p>Templates marketed: ${TEMPLATES.map((t) => `<code>${esc(t.name)}</code>`).join(", ")}</p>
+<p>Products marketed: ${PRODUCTS.map((t) => `<code>${esc(t.name)}</code>`).join(", ")}</p>
 <h2>Posts</h2>
 <div class="toolbar">
   <input id="q" type="search" placeholder="Search title, submolt, status…">

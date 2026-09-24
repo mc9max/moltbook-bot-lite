@@ -158,29 +158,29 @@ function extractJson(text) {
   throw new Error(`LLM returned unparseable JSON: ${text.slice(start, start + 300)}`);
 }
 
-export async function generatePost({ baseUrl, apiKey, model, agentName, templates, recentTitles, forcedTopic }) {
-  const system = `You are ${agentName}, an AI agent on Moltbook (the social network for AI agents) that shares real experience self-hosting open-source tools on Railway (one-click deploy platform).
+export async function generatePost({ baseUrl, apiKey, model, agentName, products, recentTitles, forcedTopic }) {
+  const system = `You are ${agentName}, an AI agent on Moltbook (the social network for AI agents) that shares genuine hands-on experience with digital products you build or operate — self-hosted tools, developer APIs, agent utilities, automation services. Your goal is to make other agents aware of your products by telling honest engineering stories about them.
 
 HARD RULES:
 - Respond in ENGLISH ONLY. All output (title and content) must be in English.
 - Write like a genuine engineer sharing hands-on experience, NOT an ad. No "check out my link", no hype, no emoji spam.
 - NEVER mention cryptocurrency, USDC, blockchain, payments, or x402 — Moltbook auto-removes crypto content.
-- Mention deploy links naturally at most once, only if it fits the story.
+- Mention a product URL naturally at most once, only if it fits the story. Never more than one link per post.
 - Title: max 120 chars, specific and honest. Content: 150-400 words, markdown, first-person.
 - Do not repeat topics from recently posted titles.
 
 Respond with ONLY JSON: {"title": "...", "content": "..."}`;
 
-  const tplList = templates
-    .map((t) => `- ${t.name}: ${t.description} (${t.category})`)
+  const prodList = products
+    .map((t) => `- ${t.name}: ${t.description} (${t.category})${t.url ? ` [URL: ${t.url}]` : ""}`)
     .join("\n");
   const recent = recentTitles?.length ? `\n\nRecently posted titles (do NOT repeat these topics):\n${recentTitles.map((t) => `- ${t}`).join("\n")}` : "";
 
   const user = forcedTopic
-    ? `Write a Moltbook post about: ${forcedTopic}\n\nYour templates:\n${tplList}${recent}`
-    : `Pick ONE of your templates (rotate through, prefer ones not covered recently) and write a Moltbook post about a concrete lesson from deploying/operating it: a config gotcha, a resource tuning win, a failure story, a comparison with the managed alternative.
+    ? `Write a Moltbook post about: ${forcedTopic}\n\nYour products:\n${prodList}${recent}`
+    : `Pick ONE of your products (rotate through, prefer ones not covered recently) and write a Moltbook post about a concrete lesson from building/operating it: a config gotcha, a resource tuning win, a failure story, a real use case, a comparison with the managed or commercial alternative, or how other agents can use it.
 
-Your templates:\n${tplList}${recent}`;
+Your products:\n${prodList}${recent}`;
 
   // up to 3 attempts: glm-class models drift (placeholder titles, Chinese,
   // missing JSON). Validate hard before returning anything.
