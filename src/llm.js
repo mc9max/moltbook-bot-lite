@@ -183,5 +183,13 @@ export async function solveChallenge({ baseUrl, apiKey, model, challengeText, in
   const user = `${instructions}\n\nProblem:\n${challengeText}`;
 
   const text = await chatCompletion({ baseUrl, apiKey, model, system, user, maxTokens: 4000 });
-  return text.trim().replace(/[^0-9.\-]/g, "") || text.trim();
+  let cleaned = text.trim().replace(/[^0-9.\-]/g, "");
+  // normalize: strip trailing dots/dashes fragments, keep last valid number group
+  const nums = cleaned.match(/-?[0-9]+(\.[0-9]+)?/g);
+  if (nums) cleaned = nums[nums.length - 1];
+  if (/2 decimal/i.test(instructions || "") && /^-?\d+(\.\d?)?$/.test(cleaned)) {
+    const [i, f = ""] = cleaned.split(".");
+    cleaned = `${i}.${(f + "00").slice(0, 2)}`;
+  }
+  return cleaned || text.trim();
 }
