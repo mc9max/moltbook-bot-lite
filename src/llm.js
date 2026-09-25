@@ -314,6 +314,8 @@ export async function solveChallenge({ baseUrl, apiKey, model, challengeText, in
   const computed = solveArithmetic(cleanedChallenge);
   if (computed !== null && Number.isFinite(computed)) {
     let fmt = computed.toFixed(2);
+    // strip spurious leading zeros (e.g. "0028.00") that Moltbook may reject
+    fmt = fmt.replace(/^(-?)0+(\d)/, "$1$2");
     if (/2 decimal/i.test(instructions || "")) return fmt;
     return String(computed);
   }
