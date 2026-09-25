@@ -207,11 +207,19 @@ Your products:\n${prodList}${recent}`;
   };
 
   let lastRaw = null;
-  for (let attempt = 1; attempt <= 4; attempt++) {
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    // glm-class models sometimes stream thinking prose instead of JSON
+    // ("Let me pick a product..."). Escalate the corrective pressure each
+    // attempt: after 2 prose failures, open with an explicit one-shot example.
+    const proseFail = lastRaw !== null && !lastRaw.includes("{");
+    const extra = attempt === 1 ? undefined
+      : proseFail
+        ? `\n\nSTOP. Do NOT think out loud or write any prose. Your ENTIRE response must be exactly one JSON object and nothing else — it must start with { and end with }. Example shape: {"title":"Why my backup server OOM-killed at 3am","content":"Last month my ... (300+ words of genuine experience) ...","submolt":"selfhosted"}`
+        : "\n\nREMINDER: Respond in ENGLISH with ONLY the JSON object. Title must be a real descriptive sentence (never \"...\" or placeholders). Content must read as genuine experience: no sales calls-to-action, at most one product URL.";
     const text = await chatCompletion({
       baseUrl, apiKey, model, system, user,
       maxTokens: 1500,
-      extraUser: attempt > 1 ? "\n\nREMINDER: Respond in ENGLISH with ONLY the JSON object. Title must be a real descriptive sentence (never \"...\" or placeholders). Content must read as genuine experience: no sales calls-to-action, at most one product URL." : undefined,
+      extraUser: extra,
     });
     lastRaw = text;
     let parsed;
