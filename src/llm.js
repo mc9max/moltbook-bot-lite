@@ -294,7 +294,7 @@ function solveArithmetic(cleanedText) {
   const isSubtract = /\b(loses|lose|decreases|decrease|minus|drops|drop|slows|slow|reduces|reduce)\b/.test(t);
   const isDivide = /\b(splits|split|divides|divide|shares|shared equally)\b/.test(t);
   if (isDivide) return nums[0] / 2; // "splits N equally between two"
-  const isMultiply = /\b(multiplies|multiplied|multiply|times|doubles|doubled|triples|tripled)\b/.test(t);
+  const isMultiply = /\b(multiplies|multiplied|multiply|times|doubles|doubled|triples|tripled|product)\b/.test(t);
   if (isMultiply) {
     // "N multiplies by M" or "N doubles" (x2)
     if (/\b(doubles|doubled)\b/.test(t)) return nums[0] * 2;
