@@ -263,12 +263,54 @@ function deobfuscateChallenge(raw) {
   return out.join(" ").replace(/\s+/g, " ").trim();
 }
 
+// Convert number words to digits: "thirty five" -> 35
+function wordsToNumbers(text) {
+  const SMALL = { zero:0, one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10, eleven:11, twelve:12, thirteen:13, fourteen:14, fifteen:15, sixteen:16, seventeen:17, eighteen:18, nineteen:19 };
+  const TENS = { twenty:20, thirty:30, forty:40, fifty:50, sixty:60, seventy:70, eighty:80, ninety:90 };
+  let out = text;
+  // compound: tens + units ("twenty five" -> 25)
+  for (const [ten, tv] of Object.entries(TENS)) {
+    for (const [unit, uv] of Object.entries(SMALL)) {
+      if (uv === 0) continue;
+      out = out.replace(new RegExp("\\b" + ten + "\\s+" + unit + "\\b", "g"), String(tv + uv));
+    }
+    out = out.replace(new RegExp("\\b" + ten + "\\b", "g"), String(tv));
+  }
+  for (const [w, v] of Object.entries(SMALL)) {
+    if (v > 0) out = out.replace(new RegExp("\\b" + w + "\\b", "g"), String(v));
+  }
+  out = out.replace(/\bhundred\b/g, "100").replace(/\bthousand\b/g, "1000");
+  return out;
+}
+
+// Solve "N units + M units" / "N minus M" style problems deterministically.
+// Returns null when no confident parse.
+function solveArithmetic(cleanedText) {
+  const t = wordsToNumbers(cleanedText.toLowerCase());
+  // find all numbers in the text
+  const nums = [...t.matchAll(/\b(\d+(?:\.\d+)?)\b/g)].map((m) => parseFloat(m[1]));
+  if (nums.length < 2) return null;
+  // choose operation from keywords
+  const isSubtract = /\b(loses|lose|decreases|decrease|minus|drops|drop|slows|slow|reduces|reduce)\b/.test(t);
+  const isDivide = /\b(splits|split|divides|divide|shares|shared equally)\b/.test(t);
+  if (isDivide) return nums[0] / 2; // "splits N equally between two"
+  if (isSubtract) return nums[0] - nums[1];
+  return nums[0] + nums[1]; // gains/increases/total/default
+}
+
 export async function solveChallenge({ baseUrl, apiKey, model, challengeText, instructions }) {
   const cleanedChallenge = deobfuscateChallenge(challengeText);
   const system =
     'You solve simple math word problems, usually addition/subtraction of two numbers. The text was auto-reconstructed from an obfuscated form; words may be slightly garbled but number words (twenty, thirty, five, twelve...) are reliable. Combine compound numbers correctly: "twenty five" = 25, "thirty five" = 35. Compute the arithmetic carefully. Respond with ONLY the answer in the requested format (usually a number with 2 decimal places). No explanation, no punctuation, nothing else.';
   const user = `${instructions}\n\nProblem:\n${cleanedChallenge}`;
 
+  // deterministic arithmetic first — glm answers 0.00 when unsure, which fails
+  const computed = solveArithmetic(cleanedChallenge);
+  if (computed !== null && Number.isFinite(computed)) {
+    let fmt = computed.toFixed(2);
+    if (/2 decimal/i.test(instructions || "")) return fmt;
+    return String(computed);
+  }
   const text = await chatCompletion({ baseUrl, apiKey, model, system, user, maxTokens: 4000 });
   let cleaned = text.trim().replace(/[^0-9.\-]/g, "");
   // normalize: strip trailing dots/dashes fragments, keep last valid number group
