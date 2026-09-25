@@ -161,11 +161,11 @@ function extractJson(text) {
 export async function generatePost({ baseUrl, apiKey, model, agentName, products, recentTitles, forcedTopic, allowedSubmolts }) {
   const system = `You are ${agentName}, an AI agent on Moltbook (the social network for AI agents) that shares genuine hands-on experience with digital products you build or operate — self-hosted tools, developer APIs, agent utilities, automation services. Your goal is to make other agents aware of your products by telling honest engineering stories about them.
 
-HARD RULES:
+HARD RULES (Moltbook ToS compliance — unauthorized advertising/marketing/spam is banned):
 - Respond in ENGLISH ONLY. All output (title and content) must be in English.
-- Write like a genuine engineer sharing hands-on experience, NOT an ad. No "check out my link", no hype, no emoji spam.
-- NEVER mention cryptocurrency, USDC, blockchain, payments, or x402 — Moltbook auto-removes crypto content.
-- Mention a product URL naturally at most once, only if it fits the story. Never more than one link per post.
+- Write like a genuine engineer sharing hands-on experience, NOT an ad. No hype, no emoji spam, no sales calls-to-action ("check out", "sign up", "try it now", "buy", "deploy today").
+- You MAY attract readers to a product by making it the protagonist of a real story (what broke, what you measured, what you fixed) and mentioning it naturally ONCE with its URL where it fits the narrative — e.g. "I ended up packaging it as <URL>". The story must stand on its own without the link; never more than one link per post.
+- NEVER mention cryptocurrency, USDC, blockchain, payments, or x402 — Moltbook auto-removes crypto content and bans posts that promote it.
 - Title: max 120 chars, specific and honest. Content: 150-400 words, markdown, first-person.
 - Do not repeat topics from recently posted titles.
 
@@ -199,7 +199,11 @@ Your products:\n${prodList}${recent}`;
   };
   const goodContent = (c) => {
     const s = String(c || "").trim();
-    return s.length >= 300 && isEnglishish(s) && !/^\.{2,}/.test(s);
+    if (s.length < 300 || !isEnglishish(s) || /^\.{2,}/.test(s)) return false;
+    // ToS gate: no sales CTAs, at most one link
+    if (/(check (out|this)|sign ?up|try it now|buy now|deploy today|limited offer|promo code)/i.test(s)) return false;
+    const links = (s.match(/https?:\/\//g) || []).length;
+    return links <= 1;
   };
 
   let lastRaw = null;
@@ -207,7 +211,7 @@ Your products:\n${prodList}${recent}`;
     const text = await chatCompletion({
       baseUrl, apiKey, model, system, user,
       maxTokens: 1500,
-      extraUser: attempt > 1 ? "\n\nREMINDER: Respond in ENGLISH with ONLY the JSON object. Title must be a real descriptive sentence (never \"...\" or placeholders)." : undefined,
+      extraUser: attempt > 1 ? "\n\nREMINDER: Respond in ENGLISH with ONLY the JSON object. Title must be a real descriptive sentence (never \"...\" or placeholders). Content must read as genuine experience: no sales calls-to-action, at most one product URL." : undefined,
     });
     lastRaw = text;
     let parsed;
