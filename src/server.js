@@ -138,11 +138,29 @@ function normalizeSubmolt(raw, live) {
   return s || null;
 }
 
-// keep a single timer
-let nextRun = Date.now() + 60_000; // first cycle 1 min after boot
+// Scheduling: interval anchored to the last cycle start, persisted in state
+// so redeploys don't reset the cadence (which caused surprise extra posts and
+// a wrong "Next run" display). On boot: nextRun = lastCycleAt + interval;
+// if that's already in the past, fire on the next tick (30s) to catch up.
+const INTERVAL_MS = POST_INTERVAL_MIN * 60_000;
+function lastCycleAt() {
+  const s = store.get();
+  const posts = s.recent_posts || [];
+  // any entry counts — including failures — since a failed cycle still did the LLM work
+  for (const p of posts) {
+    const t = Date.parse(p.at);
+    if (!isNaN(t)) return t;
+  }
+  return 0;
+}
+let nextRun = Date.now() + 60_000; // fallback: 1 min after boot
+try {
+  const last = lastCycleAt();
+  if (last > 0) nextRun = last + INTERVAL_MS;
+} catch {}
 setInterval(async () => {
   if (Date.now() < nextRun) return;
-  nextRun = Date.now() + POST_INTERVAL_MIN * 60_000;
+  nextRun = Date.now() + INTERVAL_MS;
   if (DRY_RUN || configured) {
     await runCycle(null); // submolt decided inside the cycle from live list
   }
@@ -193,8 +211,11 @@ const state = { sortKey: "at", dir: -1, page: 1, per: 15, q: "" };
 const human = (iso) => {
   const d = new Date(iso); if (isNaN(d)) return iso || "";
   const diff = (Date.now() - d.getTime()) / 1000;
-  const rel = diff < 60 ? "just now" : diff < 3600 ? Math.floor(diff/60) + "m ago"
-    : diff < 86400 ? Math.floor(diff/3600) + "h ago" : Math.floor(diff/86400) + "d ago";
+  const rel = diff >= -60 ? (Math.abs(diff) < 60 ? "just now"
+    : diff < 3600 ? Math.floor(diff/60) + "m ago"
+    : diff < 86400 ? Math.floor(diff/3600) + "h ago" : Math.floor(diff/86400) + "d ago")
+    : (Math.abs(diff) < 3600 ? "in " + Math.ceil(-diff/60) + "m"
+    : Math.abs(diff) < 86400 ? "in " + Math.ceil(-diff/3600) + "h" : "in " + Math.ceil(-diff/86400) + "d");
   return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) + " (" + rel + ")";
 };
 document.querySelectorAll(".humantime").forEach((el) => { el.textContent = human(el.dataset.ts); el.title = el.dataset.ts; });
