@@ -113,7 +113,7 @@ async function runCycle(explicitSubmolt, forcedTopic = null) {
     console.log(`[post] ${title} -> m/${submolt} (verified=${verified})`);
     return { ok: true, ...entry };
   } catch (err) {
-    const entry = { at: new Date().toISOString(), title: forcedTopic || "(cycle)", submolt, error: String(err?.message || err) };
+    const entry = { at: new Date().toISOString(), title: forcedTopic || "(cycle)", submolt: typeof submolt !== "undefined" ? submolt : DEFAULT_SUBMOLT_FALLBACK, error: String(err?.message || err) };
     store.addPost(entry, 20);
     console.error("[post] failed:", err?.message || err);
     return { ok: false, error: String(err?.message || err) };
