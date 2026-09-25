@@ -34,21 +34,23 @@ app.get("/api/status", (c) => {
 
 app.post("/api/post-now", async (c) => {
   const body = await c.req.json().catch(() => ({}));
-  const submolt = body.submolt || process.env.DEFAULT_SUBMOLT || "selfhosted";
-  const result = await runCycle(submolt, body.topic || null);
+  const result = await runCycle(body.submolt || null, body.topic || null);
   return c.json(result, result.ok ? 200 : 502);
 });
 
 // ---------- bot loop ----------
-async function runCycle(submolt, forcedTopic = null) {
+async function runCycle(explicitSubmolt, forcedTopic = null) {
   const s = store.get();
   let entryDebug = null;
   try {
     if (!configured) throw new Error("MOLTBOOK_API_KEY not set (must start with moltbook_)");
 
+    // 0. live submolt list (TTL-cached; refreshes lazily so it never goes stale)
+    const liveSubmolts = await client.listSubmolts();
+
     // 1. generate content via LLM
     const recentTitles = s.recent_posts.map((p) => p.title);
-    const { title, content } = await generatePost({
+    const { title, content, submolt: llmSubmolt } = await generatePost({
       baseUrl: LLM_BASE_URL,
       apiKey: LLM_API_KEY,
       model: LLM_MODEL,
@@ -56,7 +58,16 @@ async function runCycle(submolt, forcedTopic = null) {
       products: PRODUCTS,
       recentTitles,
       forcedTopic,
+      allowedSubmolts: explicitSubmolt ? [] : liveSubmolts.map((x) => `${x.name}: ${(x.description || "").slice(0, 100)}`),
     });
+    // submolt priority: explicit request param > LLM pick (validated against
+    // live list) > DEFAULT_SUBMOLT. LLM's own catalog names never leak in.
+    const submolt = explicitSubmolt
+      || normalizeSubmolt(llmSubmolt, liveSubmolts)
+      || DEFAULT_SUBMOLT_FALLBACK;
+    if (llmSubmolt && submolt !== llmSubmolt) {
+      console.log(`[submolt] LLM picked "${llmSubmolt}" -> not in live list, using "${submolt}"`);
+    }
 
     if (DRY_RUN) {
       const entry = { at: new Date().toISOString(), title, submolt, status: "dry_run" };
@@ -109,14 +120,31 @@ async function runCycle(submolt, forcedTopic = null) {
   }
 }
 
+// Submolt selection: the LLM picks the best-fit submolt per post from the
+// LIVE list fetched via GET /submolts (public endpoint, TTL-cached in
+// moltbook.js so a long-running container never goes stale). SUBMOLTS env
+// restricts to a fixed set; DEFAULT_SUBMOLT is the fallback when the model's
+// pick isn't in the live list (e.g. brand-new agent, restricted submolts).
+const SUBMOLT_LIST = (process.env.SUBMOLTS || "")
+  .split(",")
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
+const DEFAULT_SUBMOLT_FALLBACK = process.env.DEFAULT_SUBMOLT || "selfhosted";
+
+function normalizeSubmolt(raw, live) {
+  const s = String(raw || "").trim().toLowerCase().replace(/^m\//, "").replace(/[^a-z0-9_-]/g, "");
+  if (SUBMOLT_LIST.length) return SUBMOLT_LIST.includes(s) ? s : null;
+  if (live && live.length) return live.some((x) => x.name === s) ? s : null;
+  return s || null;
+}
+
 // keep a single timer
 let nextRun = Date.now() + 60_000; // first cycle 1 min after boot
 setInterval(async () => {
   if (Date.now() < nextRun) return;
   nextRun = Date.now() + POST_INTERVAL_MIN * 60_000;
   if (DRY_RUN || configured) {
-    const submolt = process.env.DEFAULT_SUBMOLT || "selfhosted";
-    await runCycle(submolt);
+    await runCycle(null); // submolt decided inside the cycle from live list
   }
 }, 30_000).unref();
 

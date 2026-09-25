@@ -63,4 +63,25 @@ export class MoltbookClient {
   feed(sort = "new", limit = 25) {
     return this._req(`/posts?sort=${sort}&limit=${limit}`);
   }
+
+  // Public endpoint (works without auth). Cached in-process with TTL so a
+  // long-running container never serves a stale list: refreshed lazily on
+  // access when older than SUBMOLT_TTL_MIN (default 360 = 6h), and the next
+  // cycle after expiry uses fresh data. Failure keeps the last good list.
+  async listSubmolts() {
+    const TTL_MS = (parseInt(process.env.SUBMOLT_TTL_MIN || "360", 10)) * 60_000;
+    const now = Date.now();
+    if (this._subs && this._subsAt && now - this._subsAt < TTL_MS) return this._subs;
+    try {
+      const body = await this._req("/submolts");
+      const subs = (body?.submolts || []).filter((s) => s && s.name && !s.is_private);
+      if (subs.length) {
+        this._subs = subs;
+        this._subsAt = now;
+      }
+    } catch (e) {
+      console.warn("[submolts] refresh failed, keeping cached list:", e?.message || e);
+    }
+    return this._subs || [];
+  }
 }

@@ -158,7 +158,7 @@ function extractJson(text) {
   throw new Error(`LLM returned unparseable JSON: ${text.slice(start, start + 300)}`);
 }
 
-export async function generatePost({ baseUrl, apiKey, model, agentName, products, recentTitles, forcedTopic }) {
+export async function generatePost({ baseUrl, apiKey, model, agentName, products, recentTitles, forcedTopic, allowedSubmolts }) {
   const system = `You are ${agentName}, an AI agent on Moltbook (the social network for AI agents) that shares genuine hands-on experience with digital products you build or operate — self-hosted tools, developer APIs, agent utilities, automation services. Your goal is to make other agents aware of your products by telling honest engineering stories about them.
 
 HARD RULES:
@@ -169,16 +169,19 @@ HARD RULES:
 - Title: max 120 chars, specific and honest. Content: 150-400 words, markdown, first-person.
 - Do not repeat topics from recently posted titles.
 
-Respond with ONLY JSON: {"title": "...", "content": "..."}`;
+Respond with ONLY JSON: {"title": "...", "content": "...", "submolt": "..."}`;
 
   const prodList = products
     .map((t) => `- ${t.name}: ${t.description} (${t.category})${t.url ? ` [URL: ${t.url}]` : ""}`)
     .join("\n");
   const recent = recentTitles?.length ? `\n\nRecently posted titles (do NOT repeat these topics):\n${recentTitles.map((t) => `- ${t}`).join("\n")}` : "";
 
+  const submoltLine = (allowedSubmolts && allowedSubmolts.length)
+    ? `\n\nPost into the best-fitting submolt for this story, chosen from exactly this list: ${allowedSubmolts.join(", ")}. Examples: networking/queues/messaging -> infrastructure; developer APIs/CLI tools -> tooling; a lesson learned -> todayilearned; a shipped project -> builds; deployment/hosting stories -> selfhosted.`
+    : "";
   const user = forcedTopic
-    ? `Write a Moltbook post about: ${forcedTopic}\n\nYour products:\n${prodList}${recent}`
-    : `Pick ONE of your products (rotate through, prefer ones not covered recently) and write a Moltbook post about a concrete lesson from building/operating it: a config gotcha, a resource tuning win, a failure story, a real use case, a comparison with the managed or commercial alternative, or how other agents can use it.
+    ? `Write a Moltbook post about: ${forcedTopic}${submoltLine}\n\nYour products:\n${prodList}${recent}`
+    : `Pick ONE of your products (rotate through, prefer ones not covered recently) and write a Moltbook post about a concrete lesson from building/operating it: a config gotcha, a resource tuning win, a failure story, a real use case, a comparison with the managed or commercial alternative, or how other agents can use it.${submoltLine}
 
 Your products:\n${prodList}${recent}`;
 
@@ -217,7 +220,8 @@ Your products:\n${prodList}${recent}`;
     const content = String(parsed?.content || "").trim();
     if (!goodTitle(title)) continue;
     if (!goodContent(content)) continue;
-    return { title: title.slice(0, 300), content: content.slice(0, 40000) };
+    const submolt = String(parsed?.submolt || "").trim().toLowerCase().replace(/^m\//, "");
+    return { title: title.slice(0, 300), content: content.slice(0, 40000), submolt };
   }
   throw new Error(`LLM produced no usable post after 4 attempts — last output: ${String(lastRaw || "").slice(0, 200)}`);
 }
