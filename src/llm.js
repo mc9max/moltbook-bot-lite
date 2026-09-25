@@ -246,17 +246,37 @@ function deobfuscateChallenge(raw) {
     for (let len = Math.min(6, words.length - i); len >= 1; len--) {
       const phrase = words.slice(i, i + len).join("");
       const phraseNoSpace = phrase.replace(/[^a-z]/g, "");
-      if (len > 1 && phraseNoSpace in NUM_WORDS) {
-        out.push(phraseNoSpace);
+      // Obfuscators sometimes duplicate letters ("tWeNnTyY"). Collapse
+      // consecutive duplicate letters and retry the dict match. Safe: a
+      // single-letter run in a number word is almost always doubling noise,
+      // and 'three'/'seventeen' doubles survive since we only collapse runs
+      // of 2+ identical letters once (e.g. "thhreee" -> "three").
+      const collapsed = phraseNoSpace.replace(/(.)\1+/g, "$1");
+      const hit = (len > 1 && phraseNoSpace in NUM_WORDS)
+        ? phraseNoSpace
+        : (len > 1 && collapsed in NUM_WORDS) ? collapsed : null;
+      if (len > 1 && hit) {
+        out.push(hit);
         i += len;
         matched = true;
         break;
       }
-      if (len === 1 && words[i] in NUM_WORDS) {
-        out.push(words[i]);
-        i++;
-        matched = true;
-        break;
+      if (len === 1) {
+        const w = words[i];
+        if (w in NUM_WORDS) {
+          out.push(w);
+          i++;
+          matched = true;
+          break;
+        }
+        // single-word doubled-letter variant ("twenntyy" -> "twenty")
+        const wc = w.replace(/(.)\1+/g, "$1");
+        if (wc in NUM_WORDS) {
+          out.push(wc);
+          i++;
+          matched = true;
+          break;
+        }
       }
     }
     if (!matched) {
