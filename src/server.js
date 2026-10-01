@@ -55,7 +55,7 @@ async function runCycle(explicitSubmolt, forcedTopic = null) {
 
     // 1. generate content via LLM
     const recentTitles = s.recent_posts.map((p) => p.title);
-    const { title, content, submolt: llmSubmolt } = await generatePost({
+    const { title, content, submolt: llmSubmolt, tags: llmTags } = await generatePost({
       baseUrl: LLM_BASE_URL,
       apiKey: LLM_API_KEY,
       model: LLM_MODEL,
@@ -121,7 +121,7 @@ async function runCycle(explicitSubmolt, forcedTopic = null) {
     let blog = null;
     try {
       const moltbookUrl = entry.post_id ? `https://www.moltbook.com/post/${entry.post_id}` : null;
-      blog = await crossPost({ title, content, moltbookUrl });
+      blog = await crossPost({ title, content, moltbookUrl, tags: llmTags });
     } catch (e) {
       blog = { enabled: true, results: [], error: String(e?.message || e).slice(0, 200) };
     }

@@ -149,11 +149,19 @@ async function bloggerAccessTokenFetch() {
   return bloggerAccessToken;
 }
 
-async function publishBlogger(title, markdownContent, canonicalUrl) {
+async function publishBlogger(title, markdownContent, canonicalUrl, contentTags = []) {
   const c = bloggerConfig();
   const token = await bloggerAccessTokenFetch();
   const html = markdownToHtml(markdownContent) + (canonicalUrl ? `<p><i>Originally posted by an AI agent on Moltbook.</i></p>` : "");
-  const labels = [...c.labels];
+  // Blogger labels = content-derived tags + static BLOGGER_LABELS + the
+  // mandatory "blog" tag (user directive). De-duped, capped at 8 to keep
+  // labels meaningful.
+  const labels = [...new Set([
+    ...contentTags.map(t => String(t).trim())
+      .filter(t => t && !/^(crypto|x402|usdc|blockchain|payment)$/i.test(t)),
+    ...c.labels,
+    "blog",
+  ])].filter(Boolean).slice(0, 8);
   return withRetries("blogger", async () => {
     const res = await fetch(`https://www.googleapis.com/blogger/v3/blogs/${encodeURIComponent(c.blogId)}/posts/`, {
       method: "POST",
@@ -174,15 +182,17 @@ async function publishBlogger(title, markdownContent, canonicalUrl) {
   });
 }
 
-async function publishDevto(title, markdownContent, canonicalUrl) {
+async function publishDevto(title, markdownContent, canonicalUrl, contentTags = []) {
   const c = devtoConfig();
-  // Dev.to tags: [a-z0-9], max 4, else "Tag list exceed the maximum of 4 tags"
-  const tags = c.tags
-    // Dev.to tag constraint: lowercase alnum only; the LLM prompt already forbids
-    // crypto keywords, but strip safety anyway (never tag "crypto"/"x402").
-    .map(t => t.replace(/[^a-z0-9]/g, ""))
-    .filter(t => t && !/^(crypto|x402|usdc|blockchain|payment)$/.test(t))
-    .slice(0, 4);
+  // Dev.to tags: lowercase alnum only (hyphens stripped), max 4 — the API
+  // hard-rejects 5+ ("Tag list exceed the maximum of 4 tags"). Topical tags
+  // from the LLM take priority; static DEVTO_TAGS fill the remaining slots.
+  // Crypto keywords stripped safety-net style (LLM prompt also forbids them).
+  const scrub = t => String(t).toLowerCase().replace(/[^a-z0-9]/g, "");
+  const tags = [...new Set([
+    ...contentTags.map(scrub).filter(t => t && !/^(crypto|x402|usdc|blockchain|payment)$/.test(t)),
+    ...c.tags.map(scrub).filter(t => t && !/^(crypto|x402|usdc|blockchain|payment)$/.test(t)),
+  ])].slice(0, 4);
   return withRetries("devto", async () => {
     const res = await fetch(`${c.apiBase}/articles`, {
       method: "POST",
@@ -207,12 +217,12 @@ async function publishDevto(title, markdownContent, canonicalUrl) {
 
 // Cross-post to every enabled platform. Returns per-platform results; a failure
 // on one platform never blocks the other (Moltbook post already succeeded).
-export async function crossPost({ title, content, moltbookUrl }) {
+export async function crossPost({ title, content, moltbookUrl, tags = [] }) {
   if (!anyBlogEnabled()) return { enabled: false, results: [] };
   const results = [];
   if (bloggerEnabled()) {
     try {
-      const r = await publishBlogger(title, content, moltbookUrl);
+      const r = await publishBlogger(title, content, moltbookUrl, tags);
       results.push({ platform: "blogger", ok: true, url: r.url, id: r.id });
       console.log(`[blog:blogger] ${title} -> ${r.url}`);
     } catch (e) {
@@ -224,7 +234,7 @@ export async function crossPost({ title, content, moltbookUrl }) {
     try {
       // canonical_url prefers Blogger (self-hosted origin of record).
       const canon = results.find(r => r.ok && r.platform === "blogger")?.url || moltbookUrl || null;
-      const r = await publishDevto(title, content, canon);
+      const r = await publishDevto(title, content, canon, tags);
       results.push({ platform: "devto", ok: true, url: r.url, id: r.id });
       console.log(`[blog:devto] ${title} -> ${r.url}`);
     } catch (e) {

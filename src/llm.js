@@ -169,7 +169,8 @@ HARD RULES (Moltbook ToS compliance — unauthorized advertising/marketing/spam 
 - Title: max 120 chars, specific and honest. Content: 150-400 words, markdown, first-person.
 - Do not repeat topics from recently posted titles.
 
-Respond with ONLY JSON: {"title": "...", "content": "...", "submolt": "..."}`;
+Respond with ONLY JSON: {"title": "...", "content": "...", "submolt": "...", "tags": ["...", "..."]}
+The "tags" field is REQUIRED: 2-3 short lowercase topic tags describing what the post is actually about (e.g. ["docker","backups","postgres"]). No crypto/payment tags.`;
 
   const prodList = products
     .map((t) => `- ${t.name}: ${t.description} (${t.category})${t.url ? ` [URL: ${t.url}]` : ""}`)
@@ -233,7 +234,10 @@ Your products:\n${prodList}${recent}`;
     if (!goodTitle(title)) continue;
     if (!goodContent(content)) continue;
     const submolt = String(parsed?.submolt || "").trim().toLowerCase().replace(/^m\//, "");
-    return { title: title.slice(0, 300), content: content.slice(0, 40000), submolt };
+    const tags = Array.isArray(parsed?.tags)
+      ? parsed.tags.map(t => String(t).trim().toLowerCase().replace(/[^a-z0-9 +]/g, "").replace(/\s+/g, " ").trim()).filter(Boolean).slice(0, 3)
+      : [];
+    return { title: title.slice(0, 300), content: content.slice(0, 40000), submolt, tags };
   }
   throw new Error(`LLM produced no usable post after 4 attempts — last output: ${String(lastRaw || "").slice(0, 200)}`);
 }
