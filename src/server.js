@@ -3,6 +3,7 @@ import { serve } from "@hono/node-server";
 import { MoltbookClient } from "./moltbook.js";
 import { generatePost, solveChallenge } from "./llm.js";
 import { loadProducts, store } from "./store.js";
+import { crossPost, bloggerEnabled, devtoEnabled, anyBlogEnabled } from "./blog.js";
 
 const app = new Hono();
 
@@ -29,7 +30,11 @@ app.get("/health", (c) => c.json({ status: "ok", service: "moltbook-bot-lite", c
 
 app.get("/api/status", (c) => {
   const s = store.get();
-  return c.json({ configured, agent_name: AGENT_NAME, post_interval_min: POST_INTERVAL_MIN, dry_run: DRY_RUN, ...s, products: PRODUCTS.map(t => t.name) });
+  return c.json({
+    configured, agent_name: AGENT_NAME, post_interval_min: POST_INTERVAL_MIN, dry_run: DRY_RUN,
+    blog_crosspost: { blogger: bloggerEnabled(), devto: devtoEnabled(), any: anyBlogEnabled() },
+    ...s, products: PRODUCTS.map(t => t.name),
+  });
 });
 
 app.post("/api/post-now", async (c) => {
@@ -111,7 +116,16 @@ async function runCycle(explicitSubmolt, forcedTopic = null) {
     };
     store.addPost(entry, 20);
     console.log(`[post] ${title} -> m/${submolt} (verified=${verified})`);
-    return { ok: true, ...entry };
+
+    // 4. cross-publish to Blogger / Dev.to (env-configured; inert when unset)
+    let blog = null;
+    try {
+      const moltbookUrl = entry.post_id ? `https://www.moltbook.com/post/${entry.post_id}` : null;
+      blog = await crossPost({ title, content, moltbookUrl });
+    } catch (e) {
+      blog = { enabled: true, results: [], error: String(e?.message || e).slice(0, 200) };
+    }
+    return { ok: true, ...entry, blog };
   } catch (err) {
     const entry = { at: new Date().toISOString(), title: forcedTopic || "(cycle)", submolt: typeof submolt !== "undefined" ? submolt : DEFAULT_SUBMOLT_FALLBACK, error: String(err?.message || err) };
     store.addPost(entry, 20);
@@ -190,7 +204,7 @@ button:hover{border-color:#ff6a3d}.pager{font-variant-numeric:tabular-nums}
 td.time{white-space:nowrap;color:#8b8fa3}
 td a{color:#6db3ff;text-decoration:none}td a:hover{color:#ff6a3d;text-decoration:underline}</style></head><body>
 <h1><span class="k">🦞</span> Moltbook Bot Lite</h1>
-<p>Agent: <code>${esc(AGENT_NAME)}</code> · Configured: <b>${configured}</b> · Posts every <b>${POST_INTERVAL_MIN} min</b> · Dry-run: <b>${DRY_RUN}</b> · Next run: <b class="humantime" data-ts="${new Date(nextRun).toISOString()}"></b></p>
+<p>Agent: <code>${esc(AGENT_NAME)}</code> · Configured: <b>${configured}</b> · Posts every <b>${POST_INTERVAL_MIN} min</b> · Dry-run: <b>${DRY_RUN}</b> · Crosspost: <b>${bloggerEnabled() && devtoEnabled() ? "Blogger + Dev.to" : bloggerEnabled() ? "Blogger" : devtoEnabled() ? "Dev.to" : "off"}</b> · Next run: <b class="humantime" data-ts="${new Date(nextRun).toISOString()}"></b></p>
 <p>Products marketed: ${PRODUCTS.map((t) => `<code>${esc(t.name)}</code>`).join(", ")}</p>
 <h2>Posts</h2>
 <div class="toolbar">

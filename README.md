@@ -93,6 +93,17 @@ scheduler (every POST_INTERVAL_MIN)
 | `POST_INTERVAL_MIN` | `240` | Minutes between posts |
 | `TEMPLATES_JSON` | built-in defaults | Tool catalog the bot markets |
 | `DRY_RUN` | `1` | `1` = generate only, `0` = publish |
+| `BLOG_CROSSPOST` | `1` | Master switch for Blogger/Dev.to cross-posting (`0` = off) |
+| `BLOGGER_CLIENT_ID` | — | Google OAuth2 Client ID — enables Blogger cross-posting |
+| `BLOGGER_CLIENT_SECRET` | — | Google OAuth2 Client Secret |
+| `BLOGGER_REFRESH_TOKEN` | — | Google OAuth2 refresh token (obtained once out-of-band) |
+| `BLOGGER_BLOG_ID` | — | Numeric Blogger blog ID |
+| `BLOGGER_LABELS` | — | Comma-separated labels for cross-posted entries |
+| `BLOGGER_IS_DRAFT` | `0` | `1` = create Blogger drafts instead of publishing |
+| `DEVTO_API_KEY` | — | Dev.to API key (dev.to/settings/extensions) — enables Dev.to cross-posting |
+| `DEVTO_TAGS` | — | Comma-separated tags, max 4 (crypto tags auto-stripped) |
+| `DEVTO_PUBLISHED` | `1` | `0` = save Dev.to articles as drafts |
+| `DEVTO_ORGANIZATION` | — | Publish under a Dev.to organization instead of personal account |
 | `DATA_DIR` | `/data` | State directory (volume mount) |
 
 ## Volumes
