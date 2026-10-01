@@ -27,10 +27,97 @@ const CROSSPOST_ENABLED = env("BLOG_CROSSPOST", "1") !== "0";
 const DRY_RUN = process.env.DRY_RUN === "1";
 
 // --- hero image --------------------------------------------------------------
-// HERO_IMAGES: comma-separated URL pool (BLOG_HERO_IMAGES env). One is picked
-// round-robin per cross-post and applied as: Blogger → leading <figure>,
-// dev.to → article.main_image. Per-call { heroImage } overrides the pool.
-// BLOG_HERO_APPEND=0 switches to the default behaviour (no auto hero).
+// Per-post stock-photo hero, mirroring ~/Work/recipe-auto-blogger's flow:
+// LLM picks an imageQuery → Pixabay (primary) / Pexels (fallback) search →
+// download → rehost to catbox.moe (hotlink-safe, permanent) → hero URL.
+// Blogger: leading <figure>; dev.to: article.main_image.
+// Needs: PIXABAY_API_KEY and/or PEXELS_API_KEY. Set BLOG_HERO_STOCK=0 to
+// disable the stock pipeline; per-call { heroImage } still overrides; a
+// BLOG_HERO_IMAGES pool (if set) takes priority over stock search.
+
+async function searchPixabay(key, query) {
+  const u = new URL("https://pixabay.com/api/");
+  u.searchParams.set("key", key);
+  u.searchParams.set("q", query);
+  u.searchParams.set("image_type", "photo");
+  u.searchParams.set("safesearch", "true");
+  u.searchParams.set("per_page", "3");
+  u.searchParams.set("order", "popular");
+  const r = await fetch(u, { signal: AbortSignal.timeout(15000) });
+  if (!r.ok) throw new Error(`pixabay ${r.status}`);
+  const d = await r.json();
+  return (d.hits || []).map(h => h.largeImageURL || h.webformatURL).filter(Boolean);
+}
+
+async function searchPexels(key, query) {
+  const u = new URL("https://api.pexels.com/v1/search");
+  u.searchParams.set("query", query);
+  u.searchParams.set("per_page", "3");
+  const r = await fetch(u, { headers: { Authorization: key }, signal: AbortSignal.timeout(15000) });
+  if (!r.ok) throw new Error(`pexels ${r.status}`);
+  const d = await r.json();
+  return (d.photos || []).map(p => p?.src?.large2x || p?.src?.large).filter(Boolean);
+}
+
+// Rehost a downloaded image to catbox.moe (same channel as Railway template
+// icons). Catbox allows direct hotlinking and never expires — unlike Pixabay
+// CDN URLs which rotate and break embedded posts.
+async function catboxUpload(buf, filename) {
+  const form = new FormData();
+  form.append("reqtype", "fileupload");
+  form.append("fileToUpload", new Blob([buf], { type: "image/jpeg" }), filename);
+  const r = await fetch("https://catbox.moe/user/api.php", { method: "POST", body: form, signal: AbortSignal.timeout(60000) });
+  if (!r.ok) throw new Error(`catbox ${r.status}: ${(await r.text()).slice(0, 120)}`);
+  const url = (await r.text()).trim();
+  if (!/^https:\/\/files\.catbox\.moe\//.test(url)) throw new Error(`catbox unexpected: ${url.slice(0, 120)}`);
+  return url;
+}
+
+// Downloads the top stock result (recipe-bot: resize to <=800px, JPEG q85 —
+// Blogger thumbnails need <300KB). Uses sharp-free pure-JS path via canvas is
+// unavailable; images from Pixabay 'large' URLs are already <=1280px and well
+// under the limit after their CDN compression.
+async function fetchStockHero(imageQuery) {
+  const q = String(imageQuery || "").trim();
+  if (!q || env("BLOG_HERO_STOCK") === "0") return null;
+  const pixKey = env("PIXABAY_API_KEY");
+  const pexKey = env("PEXELS_API_KEY");
+  if (!pixKey && !pexKey) return null;
+
+  let urls = [];
+  const errs = [];
+  if (pixKey) { try { urls = await searchPixabay(pixKey, q); } catch (e) { errs.push(String(e.message || e)); } }
+  if (!urls.length && pexKey) { try { urls = await searchPexels(pexKey, q); } catch (e) { errs.push(String(e.message || e)); } }
+  if (!urls.length) {
+    // broader retry like recipe-bot: first two words
+    const broad = q.split(/\s+/).slice(0, 2).join(" ");
+    if (broad && broad !== q) {
+      if (pixKey) { try { urls = await searchPixabay(pixKey, broad); } catch { /* ignore */ } }
+      if (!urls.length && pexKey) { try { urls = await searchPexels(pexKey, broad); } catch { /* ignore */ } }
+    }
+  }
+  if (!urls.length) {
+    console.warn(`[hero] no stock photo for "${q}"${errs.length ? ` (${errs.join("; ")})` : ""}`);
+    return null;
+  }
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
+      if (!res.ok) continue;
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length < 5000 || buf.length > 5_000_000) continue; // sanity bounds
+      const name = `moltbook-hero-${Date.now()}.jpg`;
+      const hosted = await catboxUpload(buf, name);
+      console.log(`[hero] "${q}" -> ${hosted} (${Math.round(buf.length / 1024)}KB)`);
+      return hosted;
+    } catch (e) {
+      console.warn(`[hero] candidate failed: ${e?.message || e}`);
+    }
+  }
+  return null;
+}
+
 let heroIdx = 0;
 function pickHeroImage(override = null) {
   if (override) return String(override).trim();
@@ -252,12 +339,18 @@ async function publishDevto(title, markdownContent, canonicalUrl, contentTags = 
 
 // Cross-post to every enabled platform. Returns per-platform results; a failure
 // on one platform never blocks the other (Moltbook post already succeeded).
-export async function crossPost({ title, content, moltbookUrl, tags = [], heroImage = null }) {
+export async function crossPost({ title, content, moltbookUrl, tags = [], imageQuery = null, heroImage = null }) {
   if (!anyBlogEnabled()) return { enabled: false, results: [] };
   const results = [];
+  // Hero resolution order: explicit override > BLOG_HERO_IMAGES pool (round-robin)
+  // > per-post stock search (LLM imageQuery). At most one is used per post.
+  let hero = pickHeroImage(heroImage);
+  if (!hero) {
+    try { hero = await fetchStockHero(imageQuery); } catch (e) { console.warn("[hero] stock lookup failed:", e?.message || e); }
+  }
   if (bloggerEnabled()) {
     try {
-      const r = await publishBlogger(title, content, moltbookUrl, tags, heroImage);
+      const r = await publishBlogger(title, content, moltbookUrl, tags, hero);
       results.push({ platform: "blogger", ok: true, url: r.url, id: r.id });
       console.log(`[blog:blogger] ${title} -> ${r.url}`);
     } catch (e) {
@@ -269,7 +362,7 @@ export async function crossPost({ title, content, moltbookUrl, tags = [], heroIm
     try {
       // canonical_url prefers Blogger (self-hosted origin of record).
       const canon = results.find(r => r.ok && r.platform === "blogger")?.url || moltbookUrl || null;
-      const r = await publishDevto(title, content, canon, tags, heroImage);
+      const r = await publishDevto(title, content, canon, tags, hero);
       results.push({ platform: "devto", ok: true, url: r.url, id: r.id });
       console.log(`[blog:devto] ${title} -> ${r.url}`);
     } catch (e) {
