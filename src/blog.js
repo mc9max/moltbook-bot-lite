@@ -26,6 +26,22 @@ const env = (k, d = "") => (process.env[k] ?? d).trim();
 const CROSSPOST_ENABLED = env("BLOG_CROSSPOST", "1") !== "0";
 const DRY_RUN = process.env.DRY_RUN === "1";
 
+// --- hero image --------------------------------------------------------------
+// HERO_IMAGES: comma-separated URL pool (BLOG_HERO_IMAGES env). One is picked
+// round-robin per cross-post and applied as: Blogger → leading <figure>,
+// dev.to → article.main_image. Per-call { heroImage } overrides the pool.
+// BLOG_HERO_APPEND=0 switches to the default behaviour (no auto hero).
+let heroIdx = 0;
+function pickHeroImage(override = null) {
+  if (override) return String(override).trim();
+  if (env("BLOG_HERO_APPEND") === "0") return null;
+  const pool = env("BLOG_HERO_IMAGES").split(",").map(s => s.trim()).filter(Boolean);
+  if (!pool.length) return null;
+  const url = pool[heroIdx % pool.length];
+  heroIdx++;
+  return url;
+}
+
 // --- config -----------------------------------------------------------------
 
 export const bloggerConfig = () => ({
@@ -87,6 +103,7 @@ function markdownToHtml(md) {
   // anchor never get double-wrapped in nested <a> tags.
   const prot = [];
   s = s.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+    .replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, (_, alt, url) => (prot.push(`<img src="${url}" alt="${alt}" />`), `\u0000P${prot.length - 1}\u0000`))
     .replace(/\*([^*]+)\*/g, "<i>$1</i>")
     .replace(/`([^`]+)`/g, (_, c) => (prot.push(`<code>${c}</code>`), `\u0000P${prot.length - 1}\u0000`))
     .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_, txt, url) => (prot.push(`<a href="${url}">${txt}</a>`), `\u0000P${prot.length - 1}\u0000`))
@@ -161,10 +178,14 @@ async function bloggerAccessTokenFetch() {
   return bloggerAccessToken;
 }
 
-async function publishBlogger(title, markdownContent, canonicalUrl, contentTags = []) {
+async function publishBlogger(title, markdownContent, canonicalUrl, contentTags = [], heroImage = null) {
   const c = bloggerConfig();
   const token = await bloggerAccessTokenFetch();
-  const html = markdownToHtml(markdownContent) + (canonicalUrl ? `<p><i>Originally posted by an AI agent on Moltbook.</i></p>` : "");
+  const hero = pickHeroImage(heroImage);
+  const heroHtml = hero
+    ? `<figure><img src="${escapeHtml(hero)}" alt="${escapeHtml(title)}" /></figure>\n`
+    : "";
+  const html = heroHtml + markdownToHtml(markdownContent) + (canonicalUrl ? `<p><i>Originally posted by an AI agent on Moltbook.</i></p>` : "");
   // Blogger labels = content-derived tags + static BLOGGER_LABELS + the
   // mandatory "blog" tag (user directive). "blog" is inserted FIRST and the
   // cap applied after, so later content tags can never push it out.
@@ -194,8 +215,9 @@ async function publishBlogger(title, markdownContent, canonicalUrl, contentTags 
   });
 }
 
-async function publishDevto(title, markdownContent, canonicalUrl, contentTags = []) {
+async function publishDevto(title, markdownContent, canonicalUrl, contentTags = [], heroImage = null) {
   const c = devtoConfig();
+  const hero = pickHeroImage(heroImage);
   // Dev.to tags: lowercase alnum only (hyphens stripped), max 4 — the API
   // hard-rejects 5+ ("Tag list exceed the maximum of 4 tags"). Topical tags
   // from the LLM take priority; static DEVTO_TAGS fill the remaining slots.
@@ -213,6 +235,7 @@ async function publishDevto(title, markdownContent, canonicalUrl, contentTags = 
         article: {
           title,
           body_markdown: String(markdownContent || "").trim(),
+          ...(hero ? { main_image: hero } : {}),
           published: c.published,
           tags,
           ...(canonicalUrl ? { canonical_url: canonicalUrl } : {}),
@@ -229,12 +252,12 @@ async function publishDevto(title, markdownContent, canonicalUrl, contentTags = 
 
 // Cross-post to every enabled platform. Returns per-platform results; a failure
 // on one platform never blocks the other (Moltbook post already succeeded).
-export async function crossPost({ title, content, moltbookUrl, tags = [] }) {
+export async function crossPost({ title, content, moltbookUrl, tags = [], heroImage = null }) {
   if (!anyBlogEnabled()) return { enabled: false, results: [] };
   const results = [];
   if (bloggerEnabled()) {
     try {
-      const r = await publishBlogger(title, content, moltbookUrl, tags);
+      const r = await publishBlogger(title, content, moltbookUrl, tags, heroImage);
       results.push({ platform: "blogger", ok: true, url: r.url, id: r.id });
       console.log(`[blog:blogger] ${title} -> ${r.url}`);
     } catch (e) {
@@ -246,7 +269,7 @@ export async function crossPost({ title, content, moltbookUrl, tags = [] }) {
     try {
       // canonical_url prefers Blogger (self-hosted origin of record).
       const canon = results.find(r => r.ok && r.platform === "blogger")?.url || moltbookUrl || null;
-      const r = await publishDevto(title, content, canon, tags);
+      const r = await publishDevto(title, content, canon, tags, heroImage);
       results.push({ platform: "devto", ok: true, url: r.url, id: r.id });
       console.log(`[blog:devto] ${title} -> ${r.url}`);
     } catch (e) {
