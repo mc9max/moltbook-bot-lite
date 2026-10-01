@@ -81,11 +81,23 @@ function markdownToHtml(md) {
     .replace(/^### (.*)$/gm, "<h3>$1</h3>")
     .replace(/^## (.*)$/gm, "<h2>$1</h2>")
     .replace(/^# (.*)$/gm, "<h1>$1</h1>");
-  // bold, italic, inline code, links
+  // bold, italic, inline code, links.
+  // Inline code and [text](url) links are captured to placeholders BEFORE the
+  // bare-URL autolinker runs, so URLs inside <code> or inside an existing
+  // anchor never get double-wrapped in nested <a> tags.
+  const prot = [];
   s = s.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
     .replace(/\*([^*]+)\*/g, "<i>$1</i>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2">$1</a>');
+    .replace(/`([^`]+)`/g, (_, c) => (prot.push(`<code>${c}</code>`), `\u0000P${prot.length - 1}\u0000`))
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_, txt, url) => (prot.push(`<a href="${url}">${txt}</a>`), `\u0000P${prot.length - 1}\u0000`))
+    // bare URLs -> hyperlinks (trailing punctuation kept outside the anchor,
+    // matching dev.to's native autolink behaviour)
+    .replace(/https?:\/\/[^\s<>"']+/g, (m) => {
+      const trail = (m.match(/[.,;:!?)\]]+$/) || [""])[0];
+      const url = trail ? m.slice(0, -trail.length) : m;
+      return `<a href="${url}">${url}</a>${trail}`;
+    });
+  s = s.replace(/\u0000P(\d+)\u0000/g, (_, i) => prot[Number(i)]);
   // lists
   s = s.replace(/^(?:- (.*)\n?)+/gm, (m) => {
     const items = m.trim().split("\n").map((l) => `<li>${l.replace(/^- /, "")}</li>`).join("");
@@ -154,13 +166,13 @@ async function publishBlogger(title, markdownContent, canonicalUrl, contentTags 
   const token = await bloggerAccessTokenFetch();
   const html = markdownToHtml(markdownContent) + (canonicalUrl ? `<p><i>Originally posted by an AI agent on Moltbook.</i></p>` : "");
   // Blogger labels = content-derived tags + static BLOGGER_LABELS + the
-  // mandatory "blog" tag (user directive). De-duped, capped at 8 to keep
-  // labels meaningful.
+  // mandatory "blog" tag (user directive). "blog" is inserted FIRST and the
+  // cap applied after, so later content tags can never push it out.
   const labels = [...new Set([
+    "blog",
     ...contentTags.map(t => String(t).trim())
       .filter(t => t && !/^(crypto|x402|usdc|blockchain|payment)$/i.test(t)),
     ...c.labels,
-    "blog",
   ])].filter(Boolean).slice(0, 8);
   return withRetries("blogger", async () => {
     const res = await fetch(`https://www.googleapis.com/blogger/v3/blogs/${encodeURIComponent(c.blogId)}/posts/`, {
