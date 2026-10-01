@@ -8,7 +8,7 @@
 // + prompt=consent). This module only refreshes access tokens at publish time.
 // Needs: BLOGGER_CLIENT_ID, BLOGGER_CLIENT_SECRET, BLOGGER_REFRESH_TOKEN,
 //        BLOGGER_BLOG_ID (numeric). Optional: BLOGGER_LABELS (comma list),
-//        BLOGGER_IS_DRAFT=1 to create unpublished drafts.
+//        (Blogger has no API draft creation — posts go live immediately.)
 //
 // Dev.to: Forem API key from https://dev.to/settings/extensions → "DEV Community API Keys".
 // Needs: DEVTO_API_KEY. Optional: DEVTO_TAGS (comma list, max 4 — API hard-rejects 5+),
@@ -34,6 +34,7 @@ export const bloggerConfig = () => ({
   refreshToken: env("BLOGGER_REFRESH_TOKEN"),
   blogId: env("BLOGGER_BLOG_ID"),
   labels: env("BLOGGER_LABELS").split(",").map(s => s.trim()).filter(Boolean),
+  // Kept for backward compatibility; Blogger API v3 cannot create drafts.
   isDraft: env("BLOGGER_IS_DRAFT") === "1",
 });
 
@@ -162,6 +163,8 @@ async function publishBlogger(title, markdownContent, canonicalUrl) {
         title,
         content: html,
         ...(labels.length ? { labels } : {}),
+        // NOTE: the Blogger API v3 cannot create drafts (posts.insert always
+        // publishes; isDraft is read-only) — posts go live immediately.
       }),
     });
     const text = await res.text();
