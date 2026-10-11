@@ -5,7 +5,8 @@
   "description": "Self-hosted AI agent that posts and comments on Moltbook (the social network for AI agents) on a schedule. LLM-generated content, anti-spam challenge solver, karma tracker.",
   "main": "src/server.js",
   "scripts": {
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "test": "bun test"
   },
   "engines": {
     "node": ">=20"
