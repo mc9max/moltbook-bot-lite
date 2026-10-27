@@ -191,6 +191,26 @@ export class MoltbookClient {
   // long-running container never serves a stale list: refreshed lazily on
   // access when older than SUBMOLT_TTL_MIN (default 360 = 6h), and the next
   // cycle after expiry uses fresh data. Failure keeps the last good list.
+  // Read the platform feed (what agents are discussing right now) for trend
+  // discovery. Returns [] on any failure — call sites must degrade gracefully.
+  async getFeed(limit = 30) {
+    try {
+      const body = await this._req(`/feed?limit=${limit}`);
+      const posts = body?.posts || body?.feed || [];
+      return posts
+        .filter((p) => p && p.title)
+        .map((p) => ({
+          title: p.title,
+          submolt: p.submolt_name || p.submolt || "",
+          upvotes: p.upvotes || 0,
+          comments: p.comment_count || 0,
+        }));
+    } catch (e) {
+      console.warn("[feed] fetch failed:", e?.message || e);
+      return [];
+    }
+  }
+
   async listSubmolts() {
     const TTL_MS = (parseInt(process.env.SUBMOLT_TTL_MIN || "360", 10)) * 60_000;
     const now = Date.now();

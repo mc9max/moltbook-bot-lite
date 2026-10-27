@@ -7,6 +7,8 @@
 import { MoltbookClient } from "./moltbook.js";
 import { generatePost, solveChallenge } from "./llm.js";
 import { loadProducts, store } from "./store.js";
+import { pickTrendTopic, matchProduct, fetchHackerNewsPosts, syncCatalogFromRegistry } from "./topics.js";
+import { writeFileSync } from "node:fs";
 import { crossPost, bloggerEnabled, devtoEnabled, anyBlogEnabled } from "./blog.js";
 
 const MOLTBOOK_API_KEY = process.env.MOLTBOOK_API_KEY || "";
@@ -21,12 +23,68 @@ const PORT = parseInt(process.env.PORT || "3000", 10);
 const client = new MoltbookClient(MOLTBOOK_API_KEY);
 const PRODUCTS = loadProducts();
 const configured = MOLTBOOK_API_KEY.startsWith("moltbook_");
+// Catalog may be extended in-cycle via PRODUCTS_REGISTRY_URL (see runCycle).
+let catalog = PRODUCTS;
+
+// Trend discovery is on by default: the cycle crawls the Moltbook feed (plus
+// HN when TREND_SOURCES includes "hn") and steers the post at whatever's being
+// discussed. Set TREND_SOURCES="" to restore pure product rotation.
+const TREND_SOURCES = (process.env.TREND_SOURCES ?? "moltbook")
+  .split(",")
+  .map((x) => x.trim().toLowerCase())
+  .filter(Boolean);
+// Optional: catalog self-update as new topics appear (e.g. a hosted
+// registry.json listing x402.freeq.one tool entries). Unset = catalog stays
+// exactly as PRODUCTS_JSON / /data/products.json provides it.
+const PRODUCTS_REGISTRY_URL = process.env.PRODUCTS_REGISTRY_URL || "";
 
 async function runCycle(explicitSubmolt, forcedTopic = null) {
   const s = store.get();
   let entryDebug = null;
   try {
     if (!configured) throw new Error("MOLTBOOK_API_KEY not set (must start with moltbook_)");
+
+    // -1. optional catalog self-update from a hosted registry (best-effort).
+    // As new tool entries appear there, they're validated, de-banned and
+    // merged into the live catalog; with a writable volume they also persist
+    // to /data/products.json. If PRODUCTS_JSON is set, env still wins on the
+    // next process start — registry adoption is additive per-cycle only.
+    if (PRODUCTS_REGISTRY_URL) {
+      const sync = await syncCatalogFromRegistry(PRODUCTS_REGISTRY_URL, catalog);
+      if (sync.error) {
+        console.warn(`[catalog] registry sync failed: ${sync.error}`);
+      } else if (sync.added.length) {
+        console.log(`[catalog] adopted ${sync.added.length} new item(s): ${sync.added.map((x) => x.name).join(", ")}`);
+        catalog = sync.merged;
+        try {
+          const DATA_DIR = process.env.DATA_DIR || "/data";
+          writeFileSync(`${DATA_DIR}/products.json`, JSON.stringify(sync.merged, null, 1));
+        } catch {}
+      }
+    }
+
+    // -0. trend discovery: crawl the configured sources, pick the topic the
+    // platform is actually discussing right now, and steer the post at it
+    // (angling through a catalog product when one genuinely matches, a
+    // generic builder-take when none does). Discovery failure must never
+    // fail the cycle — fall through to normal product rotation.
+    if (!forcedTopic && TREND_SOURCES.length) {
+      try {
+        const posts = [];
+        if (TREND_SOURCES.includes("moltbook")) posts.push(...(await client.getFeed(40)));
+        if (TREND_SOURCES.includes("hn")) posts.push(...(await fetchHackerNewsPosts()));
+        const trend = pickTrendTopic(posts, s.recent_posts.map((p) => p.title));
+        if (trend) {
+          const match = matchProduct(trend.phrase, catalog);
+          forcedTopic = match
+            ? `${trend.phrase} — as told from the operator's seat of ${match.name}`
+            : `${trend.phrase} — what agents shipping in this space should learn`;
+          console.log(`[trend] "${trend.phrase}" (${trend.mentions} mentions across ${trend.sources} posts) -> ${match ? match.name : "no catalog match, generic angle"}`);
+        }
+      } catch (e) {
+        console.warn("[trend] discovery failed, using normal rotation:", e?.message || e);
+      }
+    }
 
     // 0. live submolt list (TTL-cached; refreshes lazily so it never goes stale)
     const liveSubmolts = await client.listSubmolts();
@@ -38,7 +96,7 @@ async function runCycle(explicitSubmolt, forcedTopic = null) {
       apiKey: LLM_API_KEY,
       model: LLM_MODEL,
       agentName: AGENT_NAME,
-      products: PRODUCTS,
+      products: catalog,
       recentTitles,
       forcedTopic,
       allowedSubmolts: explicitSubmolt ? [] : liveSubmolts.map((x) => `${x.name}: ${(x.description || "").slice(0, 100)}`),
