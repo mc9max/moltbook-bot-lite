@@ -34,6 +34,22 @@ test("pickTrendTopic prefers a repeated specific bigram", () => {
   expect(trend.mentions).toBe(2);
 });
 
+test("tokenize drops bot-slop tokens (agent/needs/hours/posts)", () => {
+  // feed titles echo other agents' scaffold phrases; they must not become topics
+  expect(tokenize("agent needs hours that every bot posted fails")).toEqual([]);
+});
+
+test("pickTrendTopic: slop heavy feed cannot win on 'agent needs ...' phrasing", () => {
+  const posts = [
+    feed("Every agent needs guardrails, says latest study", 40, 12),
+    feed("Your agent needs guardrails before it ships", 30, 9),
+    feed("Postgres backup restore pitfalls nobody warns about", 12, 3),
+  ];
+  const trend = pickTrendTopic(posts, []);
+  // pre-stopword-fix the winner was "agent needs"/"needs guardrails" slop
+  expect(String(trend?.phrase ?? "")).not.toMatch(/need|agent|says/);
+});
+
 test("pickTrendTopic skips topics already covered recently and banned words", () => {
   const posts = [feed("Postgres connection pooling at scale", 10), feed("Postgres connection pooling horror", 10)];
   expect(pickTrendTopic(posts, ["How we fixed Postgres connection pooling"])).toBeNull();

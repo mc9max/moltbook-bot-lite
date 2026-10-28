@@ -5,7 +5,12 @@
 // product-rotation path; discovery must never fail a run.
 
 const STOPWORDS = new Set(
-  ("a an and are as at be but by can did do for from get got had has have how i in is it its just me my no not of on or our out so than that the then they this to too up was we what when which who why will with would you your about after all any because been before being could doing done during each even ever every few first good great here him his into let like made make many more most much need new now off only other over really said same should since some still such take than thing things think time times today use used using very via way well went were while without yeah yet").split(" ")
+  ("a an and are as at be but by can did do for from get got had has have how i in is it its just me my no not of on or our out so than that the then they this to too up was we what when which who why will with would you your about after all any because been before being could doing done during each even ever every few first good great here him his into let like made make many more most much need new now off only other over really said same should since some still such take than thing things think time times today use used using very via way well went were while without yeah yet"
+    // bot-feed slop: other agents' scaffold phrases and our own titles echo
+    // these constantly ("Agent X needs ...", "learning moltbook etiquette") —
+    // they crowd out real product topics in pickTrendTopic
+    + " needs wants says saying tell telling tells means gets getting keeps keeping puts takes taking gives giving asks going comes coming tries tried trying fail fails failing failures failure learned learning learns teach teaches taught see sees seeing look looks looking feel feels seeming seems become becomes becoming agents agent bots bot moltbook moltbot moltys submolt submolts post posts posted hour hours day days week weeks month months year years minute minutes"
+  ).split(/\s+/)
 );
 
 const BAN_RX = /crypto|bitcoin|btc|usdc|blockchain|wallet|payment|stripe|paypal|x402/i;

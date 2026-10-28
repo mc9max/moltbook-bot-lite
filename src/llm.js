@@ -346,29 +346,53 @@ function solveArithmetic(cleanedText) {
   return nums[0] + nums[1]; // gains/increases/total/default
 }
 
-export async function solveChallenge({ baseUrl, apiKey, model, challengeText, instructions }) {
+// A challenge is an obfuscated two-number arithmetic word problem. Produce an
+// ORDERED list of candidate answers: the deterministic arithmetic read first
+// (some models return 0.00 when unsure), then the LLM's own answer. Moltbook
+// accepts retries within the challenge's 5-minute window (rate 30/min) but
+// auto-suspends an account after 10 consecutive failed attempts — callers
+// must cap submits low (build-entry tries at most 2, in candidate order).
+export async function challengeCandidates({ baseUrl, apiKey, model, challengeText, instructions }) {
   const cleanedChallenge = deobfuscateChallenge(challengeText);
   const system =
     'You solve simple math word problems, usually addition/subtraction of two numbers. The text was auto-reconstructed from an obfuscated form; words may be slightly garbled but number words (twenty, thirty, five, twelve...) are reliable. Combine compound numbers correctly: "twenty five" = 25, "thirty five" = 35. Compute the arithmetic carefully. Respond with ONLY the answer in the requested format (usually a number with 2 decimal places). No explanation, no punctuation, nothing else.';
   const user = `${instructions}\n\nProblem:\n${cleanedChallenge}`;
+  const wantDecimals = /2 decimal/i.test(instructions || "");
 
-  // deterministic arithmetic first — glm answers 0.00 when unsure, which fails
+  const norm = (raw) => {
+    let s = String(raw ?? "").trim().replace(/[^0-9.\-]/g, "");
+    // keep the last valid number group ("Answer: 15.00." -> "15.00")
+    const nums = s.match(/-?[0-9]+(\.[0-9]+)?/g);
+    if (nums) s = nums[nums.length - 1];
+    if (!/^-?\d+(\.\d+)?$/.test(s)) return null;
+    if (wantDecimals) {
+      const [i, f = ""] = s.split(".");
+      s = `${i}.${(f + "00").slice(0, 2)}`;
+    }
+    return s || null;
+  };
+
+  const candidates = [];
+  const push = (raw) => {
+    const n = norm(raw);
+    if (n !== null && !candidates.includes(n)) candidates.push(n);
+  };
+
+  // 1. deterministic arithmetic
   const computed = solveArithmetic(cleanedChallenge);
-  if (computed !== null && Number.isFinite(computed)) {
-    let fmt = computed.toFixed(2);
-    // strip spurious leading zeros (e.g. "0028.00") that Moltbook may reject
-    fmt = fmt.replace(/^(-?)0+(\d)/, "$1$2");
-    if (/2 decimal/i.test(instructions || "")) return fmt;
-    return String(computed);
+  if (computed !== null && Number.isFinite(computed)) push(computed.toFixed(2));
+  // 2. LLM read (wrapping in try so an LLM outage can't block attempt #1)
+  try {
+    const text = await chatCompletion({ baseUrl, apiKey, model, system, user, maxTokens: 4000 });
+    push(text);
+  } catch (e) {
+    console.warn(`[verify] LLM candidate unavailable: ${e?.message || e}`);
   }
-  const text = await chatCompletion({ baseUrl, apiKey, model, system, user, maxTokens: 4000 });
-  let cleaned = text.trim().replace(/[^0-9.\-]/g, "");
-  // normalize: strip trailing dots/dashes fragments, keep last valid number group
-  const nums = cleaned.match(/-?[0-9]+(\.[0-9]+)?/g);
-  if (nums) cleaned = nums[nums.length - 1];
-  if (/2 decimal/i.test(instructions || "") && /^-?\d+(\.\d?)?$/.test(cleaned)) {
-    const [i, f = ""] = cleaned.split(".");
-    cleaned = `${i}.${(f + "00").slice(0, 2)}`;
-  }
-  return cleaned || text.trim();
+  return { candidates, cleanedChallenge };
+}
+
+// Backward-compatible single-answer solver = first candidate.
+export async function solveChallenge({ baseUrl, apiKey, model, challengeText, instructions }) {
+  const { candidates } = await challengeCandidates({ baseUrl, apiKey, model, challengeText, instructions });
+  return candidates[0] ?? "";
 }

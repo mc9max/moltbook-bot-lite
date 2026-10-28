@@ -5,7 +5,7 @@
 // used by template installs); this entry only feeds the cron bundle.
 
 import { MoltbookClient } from "./moltbook.js";
-import { generatePost, solveChallenge } from "./llm.js";
+import { generatePost, challengeCandidates } from "./llm.js";
 import { loadProducts, store } from "./store.js";
 import { pickTrendTopic, matchProduct, fetchHackerNewsPosts, syncCatalogFromRegistry } from "./topics.js";
 import { writeFileSync } from "node:fs";
@@ -119,27 +119,36 @@ async function runCycle(explicitSubmolt, forcedTopic = null) {
     // 2. post to Moltbook
     const res = await client.createPost(submolt, title, content);
 
-    // 3. solve anti-spam verification challenge if issued
+    // 3. solve anti-spam verification challenge if issued. Unverified content
+    // stays HIDDEN on Moltbook (docs), challenges expire after 5 min, wrong
+    // answers are non-terminal (the code stays usable until expiry) — BUT 10
+    // consecutive failed attempts auto-suspend the account, so we cap at 2
+    // submits per cycle: deterministic arithmetic first, then the LLM read.
     let verified = false;
+    let vAttempts = 0;
     const verification = res?.post?.verification || res?.verification || null;
     if (verification?.challenge_text) {
-      const answer = await solveChallenge({
+      const code = verification.verification_code || verification?.post?.verification_code;
+      const expires = Date.parse(verification.expires_at) || Date.now() + 4.5 * 60000;
+      const { candidates } = await challengeCandidates({
         baseUrl: LLM_BASE_URL,
         apiKey: LLM_API_KEY,
         model: LLM_MODEL,
         challengeText: verification.challenge_text,
         instructions: verification.instructions || "",
       });
-      const code = verification.verification_code || verification?.post?.verification_code;
-      let vres = null;
-      try {
-        vres = await client.submitVerification(code, answer);
-        verified = !!vres?.success;
-      } catch (e) {
-        verified = false;
-        vres = { error: String(e?.message || e) };
+      for (const answer of candidates.slice(0, 2)) {
+        if (vAttempts >= 2 || Date.now() > expires - 15e3) break;
+        vAttempts++;
+        try {
+          const vres = await client.submitVerification(code, answer);
+          if (vres?.success) { verified = true; break; }
+          entryDebug = `attempt ${vAttempts} answer="${answer}" rejected (${String(vres?.error || "failed").slice(0, 60)})`;
+        } catch (e) {
+          entryDebug = `attempt ${vAttempts} error=${String(e?.message || e).slice(0, 80)}`;
+          if (e?.status === 410 || e?.status === 409) break; // expired/used — retries pointless
+        }
       }
-      entryDebug = `challenge="${String(verification.challenge_text || "").slice(0, 200)}" | answer="${answer}" | ${verified ? "ok" : String(vres?.error || "failed").slice(0, 60)}`;
     }
 
     const entry = {
@@ -148,16 +157,24 @@ async function runCycle(explicitSubmolt, forcedTopic = null) {
       submolt,
       post_id: res?.post?.id || null,
       verification_status: verification ? (verified ? "verified" : "failed") : "none",
+      ...(vAttempts ? { verification_attempts: vAttempts } : {}),
       ...(entryDebug ? { debug: entryDebug } : {}),
     };
     store.addPost(entry, 20);
-    console.log(`[post] ${title} -> m/${submolt} (verified=${verified})`);
+    console.log(`[post] ${title} -> m/${submolt} (verified=${verified}, attempts=${vAttempts})`);
 
-    // 4. cross-publish to Blogger / Dev.to (env-configured; inert when unset)
+    // 4. cross-publish to Blogger / Dev.to (env-configured; inert when unset).
+    // A challenge-issued post that failed verification is HIDDEN on Moltbook —
+    // don't publish blog copies that point readers at an invisible post.
     let blog = null;
     try {
-      const moltbookUrl = entry.post_id ? `https://www.moltbook.com/post/${entry.post_id}` : null;
-      blog = await crossPost({ title, content, moltbookUrl, tags: llmTags, imageQuery: llmImageQuery });
+      if (verification && !verified) {
+        blog = { skipped: "moltbook post unverified (hidden) — crosspost withheld" };
+        console.warn("[blog] crosspost withheld: moltbook post is unverified/hidden");
+      } else {
+        const moltbookUrl = entry.post_id ? `https://www.moltbook.com/post/${entry.post_id}` : null;
+        blog = await crossPost({ title, content, moltbookUrl, tags: llmTags, imageQuery: llmImageQuery });
+      }
     } catch (e) {
       blog = { enabled: true, results: [], error: String(e?.message || e).slice(0, 200) };
     }
