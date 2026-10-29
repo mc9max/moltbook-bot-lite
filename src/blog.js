@@ -20,6 +20,7 @@
 // DRY_RUN=1 keeps blogs out of the loop entirely (consistent with Moltbook skip).
 
 import { setTimeout as sleep } from "node:timers/promises";
+import { uploadToR2, loadR2Config } from "./r2-upload.js";
 
 const env = (k, d = "") => (process.env[k] ?? d).trim();
 
@@ -27,13 +28,15 @@ const CROSSPOST_ENABLED = env("BLOG_CROSSPOST", "1") !== "0";
 const DRY_RUN = process.env.DRY_RUN === "1";
 
 // --- hero image --------------------------------------------------------------
-// Per-post stock-photo hero, mirroring ~/Work/recipe-auto-blogger's flow:
+// Per-post stock-photo hero, mirroring the recipe bot's flow:
 // LLM picks an imageQuery → Pixabay (primary) / Pexels (fallback) search →
-// download → rehost to catbox.moe (hotlink-safe, permanent) → hero URL.
+// download → rehost to Cloudflare R2 (cdn.freeq.one) → hero URL.
 // Blogger: leading <figure>; dev.to: article.main_image.
-// Needs: PIXABAY_API_KEY and/or PEXELS_API_KEY. Set BLOG_HERO_STOCK=0 to
-// disable the stock pipeline; per-call { heroImage } still overrides; a
-// BLOG_HERO_IMAGES pool (if set) takes priority over stock search.
+// Needs: PIXABAY_API_KEY and/or PEXELS_API_KEY, plus the R2_* vars.
+// Set BLOG_HERO_STOCK=0 to disable the stock pipeline; per-call
+// { heroImage } still overrides. Resolution order: explicit override >
+// stock search > BLOG_HERO_IMAGES pool (round-robin fallback when stock
+// finds nothing or R2 is not configured).
 
 async function searchPixabay(key, query) {
   const u = new URL("https://pixabay.com/api/");
@@ -57,20 +60,6 @@ async function searchPexels(key, query) {
   if (!r.ok) throw new Error(`pexels ${r.status}`);
   const d = await r.json();
   return (d.photos || []).map(p => p?.src?.large2x || p?.src?.large).filter(Boolean);
-}
-
-// Rehost a downloaded image to catbox.moe (same channel as Railway template
-// icons). Catbox allows direct hotlinking and never expires — unlike Pixabay
-// CDN URLs which rotate and break embedded posts.
-async function catboxUpload(buf, filename) {
-  const form = new FormData();
-  form.append("reqtype", "fileupload");
-  form.append("fileToUpload", new Blob([buf], { type: "image/jpeg" }), filename);
-  const r = await fetch("https://catbox.moe/user/api.php", { method: "POST", body: form, signal: AbortSignal.timeout(60000) });
-  if (!r.ok) throw new Error(`catbox ${r.status}: ${(await r.text()).slice(0, 120)}`);
-  const url = (await r.text()).trim();
-  if (!/^https:\/\/files\.catbox\.moe\//.test(url)) throw new Error(`catbox unexpected: ${url.slice(0, 120)}`);
-  return url;
 }
 
 // Downloads the top stock result (recipe-bot: resize to <=800px, JPEG q85 —
@@ -101,14 +90,20 @@ async function fetchStockHero(imageQuery) {
     return null;
   }
 
+  const r2 = loadR2Config();
+  if (!r2) {
+    console.warn("[hero] R2 not configured; set R2_* vars (falling back to pool)");
+    return null;
+  }
   for (const url of urls) {
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
       if (!res.ok) continue;
       const buf = Buffer.from(await res.arrayBuffer());
       if (buf.length < 5000 || buf.length > 5_000_000) continue; // sanity bounds
-      const name = `moltbook-hero-${Date.now()}.jpg`;
-      const hosted = await catboxUpload(buf, name);
+      const name = `moltbook-hero-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+      const hosted = await uploadToR2(buf, name, r2);
+      if (!hosted) continue;
       console.log(`[hero] "${q}" -> ${hosted} (${Math.round(buf.length / 1024)}KB)`);
       return hosted;
     } catch (e) {
@@ -127,6 +122,18 @@ function pickHeroImage(override = null) {
   const url = pool[heroIdx % pool.length];
   heroIdx++;
   return url;
+}
+
+// Hero resolution: explicit override > per-post stock search (LLM
+// imageQuery, R2-hosted) > BLOG_HERO_IMAGES pool (round-robin fallback).
+// BLOG_HERO_APPEND=0 disables heroes entirely.
+export async function resolveHero({ imageQuery = null, heroImage = null } = {}) {
+  if (heroImage) return String(heroImage).trim();
+  if (env("BLOG_HERO_APPEND") === "0") return null;
+  let hero = null;
+  try { hero = await fetchStockHero(imageQuery); } catch (e) { console.warn("[hero] stock lookup failed:", e?.message || e); }
+  if (!hero) hero = pickHeroImage();
+  return hero;
 }
 
 // --- config -----------------------------------------------------------------
@@ -342,12 +349,10 @@ async function publishDevto(title, markdownContent, canonicalUrl, contentTags = 
 export async function crossPost({ title, content, moltbookUrl, tags = [], imageQuery = null, heroImage = null }) {
   if (!anyBlogEnabled()) return { enabled: false, results: [] };
   const results = [];
-  // Hero resolution order: explicit override > BLOG_HERO_IMAGES pool (round-robin)
-  // > per-post stock search (LLM imageQuery). At most one is used per post.
-  let hero = pickHeroImage(heroImage);
-  if (!hero) {
-    try { hero = await fetchStockHero(imageQuery); } catch (e) { console.warn("[hero] stock lookup failed:", e?.message || e); }
-  }
+  // Hero resolution order: explicit override > per-post stock search
+  // (LLM imageQuery, R2-hosted) > BLOG_HERO_IMAGES pool (round-robin).
+  // At most one is used per post.
+  const hero = await resolveHero({ imageQuery, heroImage });
   if (bloggerEnabled()) {
     try {
       const r = await publishBlogger(title, content, moltbookUrl, tags, hero);
