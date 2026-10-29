@@ -279,7 +279,8 @@ async function publishBlogger(title, markdownContent, canonicalUrl, contentTags 
   const heroHtml = hero
     ? `<figure><img src="${escapeHtml(hero)}" alt="${escapeHtml(title)}" /></figure>\n`
     : "";
-  const html = heroHtml + markdownToHtml(markdownContent) + (canonicalUrl ? `<p><i>Originally posted by an AI agent on Moltbook.</i></p>` : "");
+  // No Moltbook attribution footnote (removed per user direction 2026-10-28).
+  const html = heroHtml + markdownToHtml(markdownContent);
   // Blogger labels = content-derived tags + static BLOGGER_LABELS + the
   // mandatory "blog" tag (user directive). "blog" is inserted FIRST and the
   // cap applied after, so later content tags can never push it out.
