@@ -90,4 +90,14 @@ export const store = {
       if (!/EROFS|EACCES|EROFS|ENOENT/.test(e.code || "")) console.warn(`state persist failed: ${e.message}`);
     }
   },
+  update(fn) {
+    ensureDir();
+    const s = this.get();
+    fn(s);
+    try {
+      writeFileSync(STATE_FILE, JSON.stringify(s, null, 1));
+    } catch (e) {
+      if (!/EROFS|EACCES|ENOENT/.test(e?.code || "")) console.warn(`state persist failed: ${e.message}`);
+    }
+  },
 };

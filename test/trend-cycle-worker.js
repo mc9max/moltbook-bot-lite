@@ -15,6 +15,7 @@ process.env.LLM_MODEL = "mock";
 process.env.DRY_RUN = "1";
 process.env.DATA_DIR = "/tmp/trend-cycle-test-data";
 process.env.TREND_SOURCES = "moltbook";
+process.env.INAPP_SOURCES = ""; // inapp watcher does real network fetches — keep it out of this mock
 delete process.env.PRODUCTS_REGISTRY_URL;
 
 let capturedUserPrompt = null;

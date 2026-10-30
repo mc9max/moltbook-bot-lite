@@ -8,6 +8,7 @@ import { MoltbookClient } from "./moltbook.js";
 import { generatePost, challengeCandidates } from "./llm.js";
 import { loadProducts, store } from "./store.js";
 import { pickTrendTopic, matchProduct, fetchHackerNewsPosts, syncCatalogFromRegistry } from "./topics.js";
+import { pickInappItem, formatInappTopic, markInappAnnounced } from "./inapp.js";
 import { writeFileSync } from "node:fs";
 import { crossPost, bloggerEnabled, devtoEnabled, anyBlogEnabled } from "./blog.js";
 
@@ -41,6 +42,7 @@ const PRODUCTS_REGISTRY_URL = process.env.PRODUCTS_REGISTRY_URL || "";
 async function runCycle(explicitSubmolt, forcedTopic = null) {
   const s = store.get();
   let entryDebug = null;
+  let forcedInappSlug = null;
   try {
     if (!configured) throw new Error("MOLTBOOK_API_KEY not set (must start with moltbook_)");
 
@@ -60,6 +62,23 @@ async function runCycle(explicitSubmolt, forcedTopic = null) {
           const DATA_DIR = process.env.DATA_DIR || "/data";
           writeFileSync(`${DATA_DIR}/products.json`, JSON.stringify(sync.merged, null, 1));
         } catch {}
+      }
+    }
+
+    // -0.5 own-channel announcements: newest not-yet-announced item from our
+    // blog / YouTube channel / GitHub org / Play Store listing. Beats trend
+    // discovery; the slug is marked seen only after a successful post so a
+    // failed generation retries next cycle. Never fails the cycle.
+    if (!forcedTopic && process.env.INAPP_SOURCES !== "") {
+      try {
+        const { item } = await pickInappItem(store);
+        if (item) {
+          forcedTopic = formatInappTopic(item);
+          forcedInappSlug = item.slug;
+          console.log(`[inapp] announcing ${item.kind}: ${item.title} (${item.url})`);
+        }
+      } catch (e) {
+        console.warn("[inapp] watcher failed, continuing:", e?.message || e);
       }
     }
 
@@ -161,6 +180,7 @@ async function runCycle(explicitSubmolt, forcedTopic = null) {
       ...(entryDebug ? { debug: entryDebug } : {}),
     };
     store.addPost(entry, 20);
+    if (forcedInappSlug) markInappAnnounced(store, forcedInappSlug);
     console.log(`[post] ${title} -> m/${submolt} (verified=${verified}, attempts=${vAttempts})`);
 
     // 4. cross-publish to Blogger / Dev.to (env-configured; inert when unset).

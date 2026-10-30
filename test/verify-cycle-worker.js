@@ -20,6 +20,7 @@ process.env.LLM_API_KEY = "test";
 process.env.LLM_MODEL = "mock";
 process.env.DATA_DIR = `/tmp/verify-cycle-${VERIFY_MODE}-${MOLT_PORT}`;
 process.env.TREND_SOURCES = "moltbook";
+process.env.INAPP_SOURCES = ""; // inapp watcher does real network fetches — keep it out of this mock
 delete process.env.PRODUCTS_REGISTRY_URL;
 delete process.env.BLOGGER_CLIENT_ID;
 delete process.env.BLOGGER_CLIENT_SECRET;
